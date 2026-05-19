@@ -72,18 +72,18 @@ async function main() {
     res.json({
       status: 'ok',
       name: 'korean-stats-mcp',
-      version: '1.3.0',
-      tools: 13,
+      version: '1.6.0',
+      tools: 12,
     });
   });
 
   app.get('/', (_req, res) => {
     res.json({
       name: 'korean-stats-mcp',
-      version: '1.3.0',
+      version: '1.6.0',
       description: 'KOSIS 91 키워드 + 17 시도 + 자치구 230+ 라우팅 + 3개 체인 MCP',
       endpoint: '/mcp (POST only)',
-      tools: 13,
+      tools: 12,
       docs: 'https://github.com/chrisryugj/korean-stats-mcp',
     });
   });

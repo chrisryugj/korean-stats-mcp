@@ -55,9 +55,9 @@ export function createServer(): McpServer {
 
   const server = new McpServer({
     name: 'korean-stats-mcp',
-    version: '1.4.0',
+    version: '1.6.0',
     description:
-      '한국 통계청 KOSIS OpenAPI 기반 MCP 서버 - 91개 키워드, 17 시도 + 자치구 230+ 라우팅, 시계열 추세, 3개 체인 도구(지역 브리핑·다지역 비교·정책 영역) — 공무원 업무 종합 통계 도우미. v1.4.0: 자치구 region 파라미터 fix, chain_compare_regions max 17 (전국 비교), chain_region_brief speech 옵션, 장래추계 데이터 isProjection 안내, list ← 추천 흡수.',
+      '한국 통계청 KOSIS OpenAPI 기반 MCP 서버 - 91개 키워드, 17 시도 + 자치구 230+ 라우팅, 시계열 추세, 3개 체인 도구(지역 브리핑·다지역 비교·정책 영역) — 공무원 업무 종합 통계 도우미. v1.6.0: 자치구 고용·인구동태 정밀 OpenAPI 라우팅 14종 통계표(인구·출산·고령·의사·주거·고용·실업·사망·혼인·이혼), 행정구역 통합 자치구(청주·창원) 코드 후보 순회, 전국 시군구 전수 라우팅.',
   });
 
   // ===== 도구 등록 =====

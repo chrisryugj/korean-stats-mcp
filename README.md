@@ -10,7 +10,7 @@
 
 ---
 
-## v1.4 — 자연어 약어·오타·공백 정규화 + 체인 도구
+## v1.6 — 자치구·시군 230+ 정밀 라우팅 + 자연어 정규화 + 체인 도구
 
 **LLM이 통계청 수치를 학습 시점으로 답하는 문제를 끝낸다.** 매 질문마다 KOSIS 공식 DB를 직접 조회.
 
@@ -141,7 +141,7 @@ Claude Desktop / Cursor / Windsurf 설정 파일에 추가.
 
 ### 방법 3: 로컬 설치 (오프라인 가능)
 
-**사전 준비:** [Node.js](https://nodejs.org) 20 이상.
+**사전 준비:** [Node.js](https://nodejs.org) 20 이상 · [KOSIS OpenAPI 키](https://kosis.kr/openapi/) (무료 발급).
 
 ```bash
 git clone https://github.com/chrisryugj/korean-stats-mcp.git
@@ -150,14 +150,15 @@ pnpm install
 pnpm run build
 ```
 
-AI 앱 설정:
+AI 앱 설정 (`KOSIS_API_KEY`에 발급받은 키 입력):
 
 ```json
 {
   "mcpServers": {
     "korean-stats": {
       "command": "node",
-      "args": ["/absolute/path/korean-stats-mcp/dist/index.js"]
+      "args": ["/absolute/path/korean-stats-mcp/dist/index.js"],
+      "env": { "KOSIS_API_KEY": "발급받은_키" }
     }
   }
 }

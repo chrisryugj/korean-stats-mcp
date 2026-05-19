@@ -1,12 +1,9 @@
 import 'dotenv/config';
 
-// 우선순위: 환경변수 KOSIS_API_KEY > 내장 키 (배포 환경 친화)
-const DEFAULT_KOSIS_KEY = 'YThiNDdhYjYyMWZlMDA5NWI5NGI0Y2E0OWRiNjZiYTY=';
-
 export const config = {
   // KOSIS API 설정
   kosis: {
-    apiKey: process.env.KOSIS_API_KEY || DEFAULT_KOSIS_KEY,
+    apiKey: process.env.KOSIS_API_KEY || '',
     baseUrl: 'https://kosis.kr/openapi',
     endpoints: {
       statisticsList: '/statisticsList.do',
@@ -56,7 +53,11 @@ export const config = {
 
 // 설정 유효성 검사
 export function validateConfig(): void {
-  // 기본 API 키가 내장되어 있어 별도 검사 불필요
+  if (!config.kosis.apiKey) {
+    throw new Error(
+      'KOSIS_API_KEY 환경변수가 설정되지 않았습니다. https://kosis.kr/openapi/ 에서 무료 발급 후 .env 또는 환경변수로 지정하세요.'
+    );
+  }
 }
 
 export type ViewCode = keyof typeof config.viewCodes;
