@@ -77,6 +77,62 @@ const CASES = [
   { id: 'case-gdp-lower',   q: { query: 'gdp' },                                       expect: 'gray' },
   { id: 'case-pm25-lower',  q: { query: 'pm2.5' },                                     expect: 'gray' },
   { id: 'case-pm10',        q: { query: 'pm10' },                                      expect: 'gray' },
+
+  // ─── M. 시군 매핑 보강 (P0-2/P0-3) ───
+  { id: 'sgg-seongnam',     q: { query: '성남시 인구' },                               expect: 'gray' },
+  { id: 'sgg-suwon',        q: { query: '수원시 인구' },                               expect: 'gray' },
+  { id: 'sgg-yongin-grdp',  q: { query: '용인시 GRDP' },                               expect: 'gray' },
+  { id: 'sgg-bucheon',      q: { query: '부천시 인구' },                               expect: 'gray' },
+  { id: 'sgg-cheongju',     q: { query: '청주시 인구' },                               expect: 'gray' },
+  { id: 'sgg-cheonan',      q: { query: '천안시 인구' },                               expect: 'gray' },
+  { id: 'sgg-jeonju',       q: { query: '전주시 인구' },                               expect: 'gray' },
+  { id: 'sgg-pohang',       q: { query: '포항시 인구' },                               expect: 'gray' },
+  { id: 'sgg-changwon',     q: { query: '창원시 인구' },                               expect: 'gray' },
+  { id: 'sgg-chuncheon',    q: { query: '춘천시 인구' },                               expect: 'gray' },
+  { id: 'sgg-yeosu',        q: { query: '여수시 출산율' },                             expect: 'gray' },
+  { id: 'sgg-gapyeong',     q: { query: '가평군 인구' },                               expect: 'gray' },
+  { id: 'sgg-yeongwol',     q: { query: '영월군 인구' },                               expect: 'gray' },
+  { id: 'sgg-danyang',      q: { query: '단양군 인구' },                               expect: 'gray' },
+  { id: 'sgg-buyeo',        q: { query: '부여군 인구' },                               expect: 'gray' },
+  { id: 'sgg-yeongdeok',    q: { query: '영덕군 인구' },                               expect: 'gray' },
+  { id: 'sgg-geoje',        q: { query: '거제시 인구' },                               expect: 'gray' },
+  { id: 'sgg-ulleung',      q: { query: '울릉군 인구' },                               expect: 'gray' },
+
+  // ─── N. 동명 자치구 disambiguate (광역시도 컨텍스트로 정밀 매칭) ───
+  { id: 'dis-gj-donggu',    q: { query: '광주 동구 인구' },                            expect: 'gray' },
+  { id: 'dis-dg-donggu',    q: { query: '대구 동구 인구' },                            expect: 'gray' },
+  { id: 'dis-bs-donggu',    q: { query: '부산 동구 인구' },                            expect: 'gray' },
+  { id: 'dis-ic-donggu',    q: { query: '인천 동구 인구' },                            expect: 'gray' },
+  { id: 'dis-dj-donggu',    q: { query: '대전 동구 인구' },                            expect: 'gray' },
+  { id: 'dis-us-namgu',     q: { query: '울산 남구 인구' },                            expect: 'gray' },
+  { id: 'dis-gj-namgu',     q: { query: '광주 남구 인구' },                            expect: 'gray' },
+  { id: 'dis-bs-gangseo',   q: { query: '부산 강서구 인구' },                          expect: 'gray' },
+  { id: 'dis-dj-junggu',    q: { query: '대전 중구 인구' },                            expect: 'gray' },
+  { id: 'dis-gj-seogu',     q: { query: '광주 서구 인구' },                            expect: 'gray' },
+  { id: 'dis-full-gj-dong', q: { query: '광주광역시 동구 인구' },                      expect: 'gray' },
+
+  // ─── O. 미등록·모호 자치구 fallback ───
+  { id: 'amb-donggu-alone', q: { query: '동구 인구' },                                 expect: 'gray' },
+  { id: 'amb-seogu-alone',  q: { query: '서구 인구' },                                 expect: 'gray' },
+  { id: 'amb-gj-city',      q: { query: '광주시 인구' },                               expect: 'gray' },
+  { id: 'amb-goseong',      q: { query: '고성군 인구' },                               expect: 'gray' },
+
+  // ─── P. quick_trend 자치구·시군 처리 (P0-1) ───
+  { id: 'trend-district-gwangjin',  t: 'trend', q: { query: '광진구 인구' },           expect: 'ok' },
+  { id: 'trend-district-gangnam',   t: 'trend', q: { query: '강남구 인구' },           expect: 'ok' },
+  { id: 'trend-district-haeundae',  t: 'trend', q: { query: '해운대구 출산율' },       expect: 'ok' },
+  { id: 'trend-district-natural',   t: 'trend', q: { query: '광진구 인구 추이' },      expect: 'ok' },
+  { id: 'trend-sgg-seongnam',       t: 'trend', q: { query: '성남시 인구' },           expect: 'ok' },
+  { id: 'trend-sgg-suwon-grdp',     t: 'trend', q: { query: '수원시 GRDP' },           expect: 'ok' },
+  { id: 'trend-prov-seoul',         t: 'trend', q: { query: '서울 인구' },             expect: 'ok' },
+  { id: 'trend-prov-fullname',      t: 'trend', q: { query: '경기도 인구' },           expect: 'ok' },
+  { id: 'trend-natural-decline',    t: 'trend', q: { query: '출산율 떨어진 추세' },    expect: 'ok' },
+  { id: 'trend-en-natural',         t: 'trend', q: { query: 'population' },            expect: 'ok' },
+
+  // ─── Q. quick_trend 회색지대 (모호/미지원) ───
+  { id: 'trend-unknown-kw',         t: 'trend', q: { query: '암호화폐' },              expect: 'edge' },
+  { id: 'trend-amb-namgu',          t: 'trend', q: { query: '남구 인구' },             expect: 'ok' },
+  { id: 'trend-amb-donggu',         t: 'trend', q: { query: '동구 인구' },             expect: 'gray' },
 ];
 
 function shorten(s, n = 200) {
@@ -87,8 +143,23 @@ function shorten(s, n = 200) {
 
 async function runOne(c) {
   try {
-    const fn = c.t === 'trend' ? quickTrend : quickStats;
-    const r = await fn(c.q);
+    if (c.t === 'trend') {
+      // quickTrend는 keyword 필드 사용
+      const input = {
+        keyword: c.q.keyword ?? c.q.query ?? '',
+        region: c.q.region,
+        yearCount: c.q.years ?? c.q.yearCount,
+      };
+      const r = await quickTrend(input);
+      return {
+        ok: !!r.success,
+        answer: shorten(r.summary),
+        note: shorten(r.note),
+        value: r.dataPoints?.length ? `${r.dataPoints.length} points` : undefined,
+        period: r.region,
+      };
+    }
+    const r = await quickStats(c.q);
     return {
       ok: !!r.success,
       answer: shorten(r.answer),

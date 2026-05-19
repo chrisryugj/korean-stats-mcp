@@ -106,7 +106,7 @@ const FALLBACK_TABLES: Record<string, Array<{
 export const searchStatisticsSchema = {
   name: 'search_statistics',
   description:
-    '키워드로 KOSIS 통계표를 검색합니다. 예: "인구", "GDP", "실업률", "서울 물가"',
+    '[검색] 키워드로 KOSIS 통계표 검색 → orgId/tableId 메타 획득 (직접 데이터 조회 전 단계). 자치구·시군은 광역시도 기본통계 시리즈로 자동 라우팅(Path A/B/C). 단일 수치/추세는 quick_stats / quick_trend가 더 빠름. 분야는 알지만 통계표를 모르면 get_recommended_statistics.',
   inputSchema: z.object({
     query: z
       .string()

@@ -12,7 +12,13 @@ import type { SimplifiedDataItem } from '../api/types.js';
 
 export const getStatisticsDataSchema = {
   name: 'get_statistics_data',
-  description: `특정 통계표의 실제 데이터를 조회합니다.
+  description: `[직접조회] 특정 통계표의 실제 데이터를 조회. orgId+tableId 필수.
+
+🔄 도구 라우팅:
+• 자연어/키워드(예: "서울 인구") → quick_stats가 우선
+• 시계열(추세/추이) → quick_trend
+• 통계표 ID를 모르면 → search_statistics
+• 차원·항목 코드 확인 → get_table_info
 
 자동 메타 lookup 지원:
 • regionName="광진구" 처럼 자치구·시·군 이름을 주면 objL1·objL2가 자동으로 채워집니다 (시군구별/자치구별/구군별/행정구역별 OBJ에서 매칭).

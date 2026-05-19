@@ -28,6 +28,12 @@ import {
   quickTrendSchema,
   fetchKosisExcel,
   fetchKosisExcelSchema,
+  chainRegionBrief,
+  chainRegionBriefSchema,
+  chainCompareRegions,
+  chainCompareRegionsSchema,
+  chainPolicyIndicator,
+  chainPolicyIndicatorSchema,
 } from './tools/index.js';
 
 // 리소스 가져오기
@@ -51,9 +57,9 @@ export function createServer(): McpServer {
 
   const server = new McpServer({
     name: 'korean-stats-mcp',
-    version: '1.2.0',
+    version: '1.3.0',
     description:
-      '한국 통계청 KOSIS OpenAPI 기반 MCP 서버 - 자연어로 통계 데이터를 검색·분석. 91개 키워드, 17개 시도 + 자치구 라우팅, 시계열 추세 분석.',
+      '한국 통계청 KOSIS OpenAPI 기반 MCP 서버 - 91개 키워드, 17 시도 + 자치구 230+ 라우팅, 시계열 추세, 3개 체인 도구(지역 브리핑·다지역 비교·정책 영역) — 공무원 업무 종합 통계 도우미.',
   });
 
   // ===== 도구 등록 =====
@@ -234,6 +240,45 @@ export function createServer(): McpServer {
             text: JSON.stringify(result, null, 2),
           },
         ],
+      };
+    }
+  );
+
+  // 11. 체인 — 지역 한장 종합 브리핑 (공무원 킬링 기능)
+  server.tool(
+    chainRegionBriefSchema.name,
+    chainRegionBriefSchema.description,
+    chainRegionBriefSchema.inputSchema.shape,
+    async (args) => {
+      const result = await chainRegionBrief(args as any);
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      };
+    }
+  );
+
+  // 12. 체인 — N지역 × M지표 비교 매트릭스
+  server.tool(
+    chainCompareRegionsSchema.name,
+    chainCompareRegionsSchema.description,
+    chainCompareRegionsSchema.inputSchema.shape,
+    async (args) => {
+      const result = await chainCompareRegions(args as any);
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      };
+    }
+  );
+
+  // 13. 체인 — 정책 영역 묶음 시계열
+  server.tool(
+    chainPolicyIndicatorSchema.name,
+    chainPolicyIndicatorSchema.description,
+    chainPolicyIndicatorSchema.inputSchema.shape,
+    async (args) => {
+      const result = await chainPolicyIndicator(args as any);
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
       };
     }
   );

@@ -11,23 +11,29 @@ import {
   getQuickStatsParam,
   getRegionCode,
 } from '../data/quickStatsParams.js';
-import { findProvinceByDistrict, PROVINCES } from '../utils/regions.js';
+import { findProvinceByDistrict, PROVINCES, AMBIGUOUS_DISTRICTS } from '../utils/regions.js';
 import { analyzeTrend } from '../utils/dataFormatter.js';
+import {
+  extractKeyword,
+  extractDistrictName,
+  extractProvinceName,
+} from './quickStats.js';
 
 const DISTRICT_PATTERN = /^[가-힣]{1,4}(구|군|시)$/;
 
 export const quickTrendSchema = {
   name: 'quick_trend',
-  description: `【추세/변화/증감 질문 → 이 도구 사용】 시계열 추세를 분석합니다.
+  description: `[빠른추세] 자연어 → 10년 시계열 + 증감률 + 최고/최저 + 추세 한 번에.
 
-■ 사용 시점: "~추세", "~변화", "~감소", "~증가", "~추이", "~경향" 등 시간에 따른 변화 질문
-■ 반환 형식: 10년간 데이터 + 증감률 + 최고/최저점 + 추세 요약
+🔄 도구 라우팅:
+• "~추세/추이/변화/증감/감소/증가/경향" → 이 도구
+• 단일 시점 수치 → quick_stats
+• 정책 영역(저출산/고령화/주거/일자리) 묶음 추세 → chain_policy_indicator
+• 차원·항목 코드 알면 정밀 분석 → analyze_time_series
 
-⚠️ 핵심 키워드만 추출하세요:
-• "인구감소 추세" → keyword: "인구"
-• "출산율 감소 원인" → keyword: "출산율"
-• "실업률 변화" → keyword: "실업률"
-• "고령화 추세" → keyword: "고령인구" 또는 "노령화지수"`,
+■ 자연어 자동 추출: keyword에 "광진구 인구 추이"처럼 통째 넣어도 추출됨
+■ 자치구·시군 → 광역시도 fallback + 안내(자치구별은 fetch_kosis_excel 권장)
+■ 별칭 자동 변환: 저출산→출산율, 고령화→고령인구, population 등`,
   inputSchema: z.object({
     keyword: z
       .string()
@@ -48,7 +54,7 @@ export const quickTrendSchema = {
 
 export type QuickTrendInput = z.infer<typeof quickTrendSchema.inputSchema>;
 
-interface TrendDataPoint {
+export interface TrendDataPoint {
   year: string;
   value: number;
   formatted: string;
@@ -101,8 +107,9 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
       };
     }
 
-    // 1. 키워드에서 파라미터 조회 (대소문자/별칭 지원)
-    const param = getQuickStatsParam(trimmedKeyword);
+    // 1. 키워드 추출 (자연어 → 정식 키워드) + 파라미터 조회
+    const extractedKw = extractKeyword(trimmedKeyword);
+    const param = getQuickStatsParam(extractedKw);
 
     if (!param) {
       const supportedKeywords = Object.keys(QUICK_STATS_PARAMS).slice(0, 30).join(', ') + ' 등';
@@ -119,37 +126,64 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
       };
     }
 
-    // 2. 지역 결정 (자치구 → 광역시도 fallback)
+    // 2. 지역 결정
+    //   우선순위: input.region > keyword에서 추출한 자치구/광역시도
+    //   자치구는 광역시도로 fallback + 안내
     let regionName = '전국';
     let objL1 = param.objL1;
     let districtNote: string | null = null;
-    let effectiveRegion = input.region?.trim();
+    let requestedRegion: string | undefined = input.region?.trim() || undefined;
+    let detectedDistrict: string | null = null;
 
-    if (effectiveRegion && DISTRICT_PATTERN.test(effectiveRegion)) {
-      const prov = findProvinceByDistrict(effectiveRegion);
-      if (prov) {
-        districtNote = `💡 "${effectiveRegion}" 자치구 시계열은 quick_trend가 지원하지 않아 ${prov.shortName} 광역시도 추세로 표시했습니다. 자치구별은 fetch_kosis_excel("${effectiveRegion}", "${trimmedKeyword}")로 조회.`;
-        effectiveRegion = prov.shortName;
-      } else {
-        districtNote = `💡 "${effectiveRegion}" 자치구 매핑이 모호합니다. 전국 추세로 표시합니다.`;
-        effectiveRegion = undefined;
+    // input.region이 자치구 형식이면 자치구로 격하
+    if (requestedRegion && DISTRICT_PATTERN.test(requestedRegion)) {
+      detectedDistrict = requestedRegion;
+      requestedRegion = undefined;
+    }
+
+    // input.region 없을 때 keyword에서 자치구/광역시도 자동 추출
+    // 광역시도명도 함께 추출 — 모호한 자치구 disambiguate에 활용
+    let provFromKw: string | null = null;
+    if (!requestedRegion && !detectedDistrict) {
+      detectedDistrict = extractDistrictName(trimmedKeyword);
+      provFromKw = extractProvinceName(trimmedKeyword, false);
+      if (!detectedDistrict && provFromKw) {
+        requestedRegion = provFromKw;
       }
     }
 
-    if (effectiveRegion && param.regionCodes) {
-      const regionCode = getRegionCode(param, effectiveRegion);
+    // 자치구 → 광역시도 fallback + 안내 (모호하면 광역시도 컨텍스트로 disambiguate)
+    if (detectedDistrict) {
+      let prov = findProvinceByDistrict(detectedDistrict);
+      if (provFromKw && AMBIGUOUS_DISTRICTS[detectedDistrict]?.includes(provFromKw)) {
+        const candidate = PROVINCES.find((p) => p.shortName === provFromKw);
+        if (candidate) prov = candidate;
+      }
+      if (prov) {
+        requestedRegion = prov.shortName;
+        districtNote = `💡 "${detectedDistrict}" 자치구 시계열은 quick_trend가 지원하지 않아 ${prov.shortName} 광역시도 추세로 표시했습니다. 자치구별은 fetch_kosis_excel("${detectedDistrict}", "${extractedKw}")로 조회.`;
+      } else if (provFromKw) {
+        requestedRegion = provFromKw;
+        districtNote = `💡 "${detectedDistrict}"은(는) 자치구 매핑이 모호합니다. ${provFromKw} 광역시도 추세로 표시합니다.`;
+      } else {
+        districtNote = `💡 "${detectedDistrict}"은(는) 자치구 매핑이 모호합니다 (여러 광역시도에 동명 자치구 존재 가능). 전국 추세로 표시합니다.`;
+      }
+    }
+
+    if (requestedRegion && param.regionCodes) {
+      const regionCode = getRegionCode(param, requestedRegion);
       if (regionCode !== param.objL1) {
         objL1 = regionCode;
-        regionName = effectiveRegion;
+        regionName = requestedRegion;
       }
-    } else if (effectiveRegion && !param.regionCodes) {
+    } else if (requestedRegion && !param.regionCodes) {
       return {
         success: false,
-        keyword: trimmedKeyword,
-        region: effectiveRegion,
+        keyword: extractedKw,
+        region: requestedRegion,
         trend: 'stable',
         trendDescription: '',
-        summary: `"${trimmedKeyword}" 통계는 지역별 추세를 지원하지 않습니다. 전국 데이터만 제공됩니다.`,
+        summary: `"${extractedKw}" 통계는 지역별 추세를 지원하지 않습니다. 전국 데이터만 제공됩니다.`,
         dataPoints: [],
         insights: [],
       };
@@ -183,7 +217,7 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
     if (results.length < 2) {
       return {
         success: false,
-        keyword: input.keyword,
+        keyword: extractedKw,
         region: regionName,
         trend: 'stable',
         trendDescription: '',
@@ -266,7 +300,7 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
 
     return {
       success: true,
-      keyword: trimmedKeyword,
+      keyword: extractedKw,
       region: regionName,
       trend,
       trendDescription: trendDescriptions[trend],

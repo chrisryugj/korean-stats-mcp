@@ -11,7 +11,7 @@ import { analyzeTrend, formatPeriod } from '../utils/dataFormatter.js';
 export const analyzeTimeSeriesSchema = {
   name: 'analyze_time_series',
   description:
-    '통계 데이터의 시계열 추세를 분석합니다. 증가/감소/안정/변동 추세와 성장률을 계산합니다. 중요: 먼저 get_table_info로 유효한 objL1, objL2, itemId 값을 확인한 후 호출하세요.',
+    '[시계열정밀] orgId+tableId+objL1+itemId 명시한 정밀 시계열 분석. 증감/추세/성장률/변동성. 키워드만 알면 quick_trend가 즉시 응답 (자치구 fallback도 자동). 차원·항목 코드는 먼저 get_table_info로 확인.',
   inputSchema: z.object({
     orgId: z.string().describe('기관 ID'),
     tableId: z.string().describe('통계표 ID'),

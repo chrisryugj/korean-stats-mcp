@@ -13,7 +13,7 @@ import { summarizeTableMeta } from '../utils/metaLookup.js';
 
 export const getTableInfoSchema = {
   name: 'get_table_info',
-  description: `통계표의 분류(OBJ_NM)와 항목(ITM_ID, ITM_NM) 목록을 조회합니다. get_statistics_data 호출 전에 objL1·objL2·itemId 코드를 확인할 때 사용하세요.
+  description: `[메타조회] 통계표의 분류(OBJ_NM)와 항목(ITM_ID, ITM_NM) 목록 조회. get_statistics_data / analyze_time_series 호출 전 차원·항목 코드 확인용. 통계표 ID 모르면 search_statistics 먼저.
 
 응답이 무거울 수 있으니 filter로 좁히세요.
 • filter="광진구" → 자치구별 분류에서 "광진구" 항목만 노출

@@ -11,7 +11,7 @@ import { calculateChangeRate } from '../utils/dataFormatter.js';
 export const compareStatisticsSchema = {
   name: 'compare_statistics',
   description:
-    '여러 지역, 시점, 또는 항목의 통계 데이터를 비교합니다.',
+    '[비교] 동일 통계표 안에서 N개 시점(period) 또는 항목(item) 비교. orgId+tableId 사전 필요. 자연어 다지역 비교(예: "서울/부산/인천 인구")는 chain_compare_regions가 더 직관적. 시점 1개 단순 조회는 quick_stats.',
   inputSchema: z.object({
     orgId: z.string().describe('기관 ID'),
     tableId: z.string().describe('통계표 ID'),

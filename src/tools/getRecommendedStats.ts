@@ -113,7 +113,7 @@ const TOPIC_RECOMMENDATIONS: Record<string, {
 export const getRecommendedStatsSchema = {
   name: 'get_recommended_statistics',
   description:
-    '관심 분야에 맞는 주요 통계표를 추천합니다.',
+    '[추천] 9개 분야(인구/경제/고용/주거/교육/보건/환경/교통/사회) 핵심 통계표 추천 카드. "무엇을 봐야 할지 모를 때" 출발점. 특정 키워드 알면 quick_stats 또는 search_statistics가 직접.',
   inputSchema: z.object({
     topic: z
       .enum([

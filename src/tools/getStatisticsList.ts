@@ -12,7 +12,7 @@ import type { ListItem } from '../api/types.js';
 export const getStatisticsListSchema = {
   name: 'get_statistics_list',
   description:
-    '주제별/기관별로 통계 목록을 탐색합니다. 트리 구조로 하위 목록을 탐색할 수 있습니다.',
+    '[목록탐색] 주제별/기관별/지방지표/국제/북한 통계 트리 탐색. parentId로 하위 목록 단계별 진입. 어떤 분야부터 봐야 할지 막막하면 get_recommended_statistics가 더 친절.',
   inputSchema: z.object({
     viewCode: z
       .string()

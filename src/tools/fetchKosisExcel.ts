@@ -31,7 +31,7 @@ const KOSIS_BASE = `${KOSIS_HOST}/nsibsHtmlSvc/fileView/FileStbl`;
 
 export const fetchKosisExcelSchema = {
   name: 'fetch_kosis_excel',
-  description: `KOSIS 사이트의 파일 통계표(엑셀로만 제공)를 다운로드해서 파싱한 마크다운을 반환합니다.
+  description: `[엑셀파싱] KOSIS 사이트의 파일 통계표(엑셀로만 제공)를 다운로드 + 파싱한 마크다운 반환. quick_stats / quick_trend가 광역시도까지만 지원하므로 자치구별 정밀 데이터는 이 도구로.
 
 ⚠️ 자치구 file 통계표 제공은 광역시도마다 차이:
 • **확인된 제공**: 서울 자치구 일부 (광진구 orgId=505, 강남구 orgId=523 등) — DT_{orgId}001_FILE{year} 형식

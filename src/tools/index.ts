@@ -65,5 +65,18 @@ export {
   type FetchKosisExcelInput,
 } from './fetchKosisExcel.js';
 
+// 체인 도구 (공무원 업무 킬링 기능)
+export {
+  chainRegionBrief,
+  chainRegionBriefSchema,
+  type ChainRegionBriefInput,
+  chainCompareRegions,
+  chainCompareRegionsSchema,
+  type ChainCompareRegionsInput,
+  chainPolicyIndicator,
+  chainPolicyIndicatorSchema,
+  type ChainPolicyIndicatorInput,
+} from './chains.js';
+
 // 도구 스키마들은 개별적으로 export되어 있습니다.
 // server.ts에서 직접 import하여 사용하세요.
