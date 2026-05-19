@@ -147,8 +147,8 @@ const CASES = [
   { id: 'incheon-yeonsu-mar',  q: { query: '연수구 혼인율' },                    expect: 'precise', tier: 'broad-vital' },
   { id: 'suwon-marriage-rate', q: { query: '수원시 혼인율' },                    expect: 'precise', tier: 'broad-vital' },
   { id: 'wonju-marriage-rate', q: { query: '원주시 혼인율' },                    expect: 'precise', tier: 'broad-vital' },
-  // 청주시 이혼율 — KOSIS INH_1B8000I_01 자치구 데이터 전 연도 결측("-") → 광역 fallback (정상)
-  { id: 'cheongju-divorce',    q: { query: '청주시 이혼율' },                    expect: 'fallback', tier: 'broad-vital' },
+  // 청주시 이혼율 — 통합 자치구 코드(33040)로 정밀 조회 (구코드 33010은 결측 → 후보 순회로 해결)
+  { id: 'cheongju-divorce',    q: { query: '청주시 이혼율' },                    expect: 'precise', tier: 'broad-vital' },
   { id: 'gangwon-chuncheon-death',q:{query: '춘천시 사망률' },                   expect: 'precise', tier: 'broad-vital' },
   { id: 'pohang-deaths',       q: { query: '포항시 사망자수' },                  expect: 'precise', tier: 'broad-vital' },
 

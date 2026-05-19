@@ -23,7 +23,7 @@ import {
   DISTRICT_OPENAPI_ROUTES,
   extractDistrictHighlight,
 } from '../data/districtFileMap.js';
-import { getDistrictKscdCodeFor } from '../utils/districtKosisCodes.js';
+import { getDistrictKscdCandidatesFor } from '../utils/districtKosisCodes.js';
 
 /**
  * 자치구로 오판하면 안 되는 키워드 집합
@@ -366,69 +366,78 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
           if (cand) provHint = cand;
         }
 
-        const districtCode = await getDistrictKscdCodeFor(
+        // 자치구 코드 후보 — 행정구역 통합 자치구(청주시·창원시)는 구코드+통합코드 2개.
+        const districtCodes = await getDistrictKscdCandidatesFor(
           route.orgId,
           route.tblId,
           districtName,
           provHint,
           route.objId ?? 'auto'
         );
-        if (districtCode) {
-          // 사용자 지정 year 처리
-          let startPrd: string | undefined;
-          let endPrd: string | undefined;
-          if (input.year) {
-            if (route.prdSe === 'Y') {
-              startPrd = String(input.year);
-              endPrd = String(input.year);
-            } else if (route.prdSe === 'M' && input.month) {
-              const m = `${input.year}${String(input.month).padStart(2, '0')}`;
-              startPrd = m;
-              endPrd = m;
-            } else if (route.prdSe === 'Q' && input.quarter) {
-              const q = `${input.year}${String(input.quarter).padStart(2, '0')}`;
-              startPrd = q;
-              endPrd = q;
-            }
-          }
 
+        // 사용자 지정 year 처리 (후보와 무관)
+        let startPrd: string | undefined;
+        let endPrd: string | undefined;
+        if (input.year) {
+          if (route.prdSe === 'Y') {
+            startPrd = String(input.year);
+            endPrd = String(input.year);
+          } else if (route.prdSe === 'M' && input.month) {
+            const m = `${input.year}${String(input.month).padStart(2, '0')}`;
+            startPrd = m;
+            endPrd = m;
+          } else if (route.prdSe === 'Q' && input.quarter) {
+            const q = `${input.year}${String(input.quarter).padStart(2, '0')}`;
+            startPrd = q;
+            endPrd = q;
+          }
+        }
+
+        // 후보 코드 순회 — 데이터 있는 코드를 찾으면 즉시 응답. 통합 자치구 구코드 결측 대응.
+        for (const districtCode of districtCodes) {
           // 자치구 코드 objLevel 결정 — 기본 objL1, INH_1B80A18 같은 swap 케이스는 objL2.
           const objL1Final =
             route.districtObjLevel === 2 ? (route.extraObjL1 ?? '0') : districtCode;
           const objL2Final =
             route.districtObjLevel === 2 ? districtCode : route.objL2;
 
-          const rows = await cache.getStatisticsData(
-            {
-              orgId: route.orgId,
-              tableId: route.tblId,
-              objL1: objL1Final,
-              objL2: objL2Final,
-              itemId: route.itmId,
-              periodType: route.prdSe,
-              recentCount: startPrd ? undefined : 1,
-              year: input.year,
-              month: input.month,
-              quarter: input.quarter,
-            },
-            async () => {
-              return client.getStatisticsData({
+          // 후보별 개별 try — 구코드가 KOSIS err(데이터 없음)를 던져도 다음 후보 계속 시도
+          let rows: Awaited<ReturnType<typeof client.getStatisticsData>>;
+          try {
+            rows = await cache.getStatisticsData(
+              {
                 orgId: route.orgId,
-                tblId: route.tblId,
+                tableId: route.tblId,
                 objL1: objL1Final,
-                ...(objL2Final ? { objL2: objL2Final } : {}),
-                itmId: route.itmId,
-                prdSe: route.prdSe,
-                newEstPrdCnt: startPrd ? undefined : 1,
-                startPrdDe: startPrd,
-                endPrdDe: endPrd,
-              });
-            }
-          );
+                objL2: objL2Final,
+                itemId: route.itmId,
+                periodType: route.prdSe,
+                recentCount: startPrd ? undefined : 1,
+                year: input.year,
+                month: input.month,
+                quarter: input.quarter,
+              },
+              async () => {
+                return client.getStatisticsData({
+                  orgId: route.orgId,
+                  tblId: route.tblId,
+                  objL1: objL1Final,
+                  ...(objL2Final ? { objL2: objL2Final } : {}),
+                  itmId: route.itmId,
+                  prdSe: route.prdSe,
+                  newEstPrdCnt: startPrd ? undefined : 1,
+                  startPrdDe: startPrd,
+                  endPrdDe: endPrd,
+                });
+              }
+            );
+          } catch {
+            continue; // 이 후보 코드 조회 실패 — 다음 후보
+          }
           if (rows.length > 0) {
             const r = rows[0];
             const rawValue = r.DT;
-            // KOSIS 데이터 누락 표시("-"/공백) — fall-through 하여 광역 fallback으로 degrade
+            // KOSIS 데이터 누락("-"/공백)이면 다음 후보 코드 시도, 끝까지 없으면 광역 fallback
             if (rawValue && rawValue !== '-' && rawValue.trim() !== '') {
               const period = r.PRD_DE;
               const periodLabel = formatPeriodWithType(period, route.prdSe);
@@ -454,9 +463,12 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
                 ...(route.isProjection ? { isProjection: true } : {}),
               };
             }
-            districtNote =
-              `💡 ${districtName} ${route.description} KOSIS 자치구 단위 데이터 미수록 — 광역시도 데이터로 대체합니다.`;
           }
+        }
+        // 후보 코드는 있었으나 전부 결측 — 광역 fallback degrade
+        if (districtCodes.length > 0) {
+          districtNote =
+            `💡 ${districtName} ${route.description} KOSIS 자치구 단위 데이터 미수록 — 광역시도 데이터로 대체합니다.`;
         }
       } catch {
         // OpenAPI 라우팅 실패 — 광역 fallback으로 degrade

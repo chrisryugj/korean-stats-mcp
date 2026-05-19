@@ -41,8 +41,12 @@ export function getProvinceKscd(orgId: string): string | null {
 
 /** 캐시 데이터 구조 */
 interface TableCodeIndex {
-  /** Map<`${provinceName}:${districtName}`, districtCode> — 광역시도 ITM_NM(예: "서울특별시") 기반 */
-  byProvinceName: Map<string, string>;
+  /**
+   * Map<`${provinceName}:${districtName}`, districtCode[]> — 광역시도 ITM_NM 기반.
+   * 행정구역 통합 자치구(청주시 33010 구코드 + 33040 통합코드, 창원시 등)는 한 키에
+   * 코드가 여러 개 — 호출 측이 데이터 있는 코드를 순회 선택한다.
+   */
+  byProvinceName: Map<string, string[]>;
   /** 광역시도 ITM_NM → ITM_ID (예: "서울특별시" → "11"). 자치구 UP_ITM_ID 매칭용 */
   provinceItmIdByName: Map<string, string>;
   /**
@@ -106,7 +110,7 @@ async function loadDistrictCodesFor(
       }
 
       // 2) 자치구 행 (UP_ITM_ID 보유) + UP_ITM_ID 비어있는 자치구 ITM_NM 직접 인덱스
-      const byProvinceName = new Map<string, string>();
+      const byProvinceName = new Map<string, string[]>();
       const byItmName = new Map<string, string>();
       const ambiguousItmNames = new Set<string>();
       for (const r of meta) {
@@ -117,8 +121,12 @@ async function loadDistrictCodesFor(
           const provinceName = provinceNameByItmId.get(parentId);
           if (provinceName) {
             const key = `${provinceName}:${r.ITM_NM}`;
-            if (!byProvinceName.has(key)) {
-              byProvinceName.set(key, r.ITM_ID);
+            // 통합 자치구는 코드가 여러 개 — 모두 수집 (중복 ITM_ID는 제외)
+            const arr = byProvinceName.get(key);
+            if (arr) {
+              if (!arr.includes(r.ITM_ID)) arr.push(r.ITM_ID);
+            } else {
+              byProvinceName.set(key, [r.ITM_ID]);
             }
           }
         } else {
@@ -168,44 +176,43 @@ async function loadDistrictCodesFor(
 }
 
 /**
- * 특정 KOSIS 테이블의 자치구 행정코드 lookup
+ * 특정 KOSIS 테이블의 자치구 행정코드 후보 lookup
  *
  * 일반화: 테이블마다 광역시도 코드 체계가 다른 문제(KSCD vs 인구동향 코드 vs ...)는
  * KOSIS 메타의 광역시도 ITM_NM(예: "서울특별시")으로 매칭해서 해결.
  *
- * @param orgId KOSIS 기관 ID
- * @param tblId KOSIS 통계표 ID
- * @param districtName 자치구·시·군 이름
- * @param provinceHint 광역시도 힌트 (없으면 findProvinceByDistrict 사용)
- * @returns 자치구 코드 또는 null
+ * 후보 배열 반환: 행정구역 통합 자치구(청주시·창원시 등)는 KOSIS에 코드가 2개
+ * (구코드 + 통합코드) — 구코드는 데이터 결측인 경우가 많아 호출 측이 순회 선택해야 한다.
+ *
+ * @returns 자치구 코드 후보 배열 (없으면 빈 배열). 첫 원소 우선.
  */
-export async function getDistrictKscdCodeFor(
+export async function getDistrictKscdCandidatesFor(
   orgId: string,
   tblId: string,
   districtName: string,
   provinceHint?: ProvinceInfo,
   objIdHint: string = 'auto'
-): Promise<string | null> {
+): Promise<string[]> {
   const prov = provinceHint ?? findProvinceByDistrict(districtName);
   const idx = await loadDistrictCodesFor(orgId, tblId, objIdHint);
   const { byProvinceName, byItmName, ambiguousItmNames } = idx;
 
-  // ── 1) UP_ITM_ID 기반 매칭 (DT_1B040A3, DT_1B81A23, DT_1B8000I 등 표준 구조) ──
+  // ── 1) UP_ITM_ID 기반 매칭 (DT_1B040A3, DT_1B81A23, INH_* 등 표준 구조) ──
   if (prov) {
-    const candidates: string[] = [prov.fullName, prov.shortName];
-    for (const c of candidates) {
-      const code = byProvinceName.get(`${c}:${districtName}`);
-      if (code) return code;
+    const provCandidates: string[] = [prov.fullName, prov.shortName];
+    for (const c of provCandidates) {
+      const codes = byProvinceName.get(`${c}:${districtName}`);
+      if (codes && codes.length > 0) return codes;
     }
     // shortName이 메타 광역시도명의 startsWith 매칭 (예: "강원" → "강원특별자치도")
-    for (const [key, code] of byProvinceName.entries()) {
+    for (const [key, codes] of byProvinceName.entries()) {
       const colon = key.indexOf(':');
       if (colon === -1) continue;
       const provNm = key.slice(0, colon);
       const distNm = key.slice(colon + 1);
       if (distNm !== districtName) continue;
       if (provNm.startsWith(prov.shortName) || prov.fullName.startsWith(provNm)) {
-        return code;
+        return codes;
       }
     }
   }
@@ -218,19 +225,37 @@ export async function getDistrictKscdCodeFor(
     // 2a) 도 시군 단일형 (수원시/청주시 등). 동명 중복(고성군)은 회피 → 광역 fallback.
     if (!ambiguousItmNames.has(districtName)) {
       const single = byItmName.get(districtName);
-      if (single) return single;
+      if (single) return [single];
     }
 
     // 2b) 광역시 자치구 결합형 — prov 필요
     if (prov) {
       const combinedShort = byItmName.get(`${prov.shortName} ${districtName}`);
-      if (combinedShort) return combinedShort;
+      if (combinedShort) return [combinedShort];
       const combinedFull = byItmName.get(`${prov.fullName} ${districtName}`);
-      if (combinedFull) return combinedFull;
+      if (combinedFull) return [combinedFull];
     }
   }
 
-  return null;
+  return [];
+}
+
+/** 단일 코드 lookup (후보 중 첫 번째). 통합 자치구 데이터 결측 가능성은 후보 순회로 처리할 것. */
+export async function getDistrictKscdCodeFor(
+  orgId: string,
+  tblId: string,
+  districtName: string,
+  provinceHint?: ProvinceInfo,
+  objIdHint: string = 'auto'
+): Promise<string | null> {
+  const codes = await getDistrictKscdCandidatesFor(
+    orgId,
+    tblId,
+    districtName,
+    provinceHint,
+    objIdHint
+  );
+  return codes[0] ?? null;
 }
 
 /** DT_1B040A3 (인구) 전용 — 가장 자주 쓰이는 자치구 인구 lookup */
