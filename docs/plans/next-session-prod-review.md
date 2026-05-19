@@ -1,242 +1,167 @@
-# 다음 세션: korean-stats-mcp v1.3.0 프로덕션급 리뷰 + 공무원 현업 실전 테스트
+# 다음 세션: korean-stats-mcp v1.6.0 출시 전 프로덕션 리뷰 + 최종 성능 검증
 
 > 새 세션 첫 메시지에 통째 붙여넣거나 `cat docs/plans/next-session-prod-review.md`로 흡수 후 시작.
 
 ---
 
-## 1. 컨텍스트 (이전 세션 정리)
+## 1. 컨텍스트 — v1.6.0 현재 상태
 
 | 항목 | 값 |
 |---|---|
 | 프로젝트 | `~/workspace/korean-stats-mcp` |
-| GitHub | `chrisryugj/korean-stats-mcp` (main, v1.3.0) |
-| 라이브 | `https://korean-stats-mcp.fly.dev/mcp` (sin region, 512MB, **13 tools**) |
-| 직전 커밋 | v1.3.0 feat: P0 자치구 라우팅 일소 + 체인 도구 3종 + korean-law-mcp 패턴 적용 |
+| GitHub | `chrisryugj/korean-stats-mcp` (main) |
+| 라이브 | `https://korean-stats-mcp.fly.dev/mcp` (Fly sin region) — **현재 v1.5.0 배포본** |
+| 로컬 상태 | v1.6.0 코드 완료, **로컬 커밋 3개 미푸시** |
+| npm | 게시본 1.5.0 — v1.6.0 미게시 |
+| MCP 도구 | 12개 (search/list/data/compare/analyze/tableInfo/quickStats/quickTrend/fetchKosisExcel/chain×3) |
 
-### 이전 세션이 해결한 것 (반복 X)
-1. **P0-1**: `quick_trend` keyword 자연어 처리 (extractKeyword/District/Province 헬퍼 공유)
-2. **P0-2/3**: `DISTRICT_TO_PROVINCE` 33 → 200+ (경기·강원·충북·충남·전북·전남·경북·경남 전체 시군 + 부산 영도·동래·인천 남동)
-3. **disambiguate**: `AMBIGUOUS_DISTRICTS` + 광역시도 컨텍스트 → "광주 동구" / "부산 강서구" 정확 매칭
-4. **광역시 약칭 가드**: `extractDistrictName`에서 "대구" 등 광역시 약칭이 자치구로 오인되는 버그 fix
-5. **벤치마킹**: 모든 도구 description에 `[태그]` + cross-reference (korean-law-mcp 패턴)
-6. **체인 도구 3종** (`src/tools/chains.ts`):
-   - `chain_region_brief` — 13지표 종합 브리핑
-   - `chain_compare_regions` — N×M 매트릭스 + 순위
-   - `chain_policy_indicator` — 7개 정책 영역(저출산/고령화/주거/일자리/치안/보건/경제) 10년 시계열
-7. **시뮬레이션**: 90(quick) + 18(chain) = **108 케이스** 통과
+### 미푸시 로컬 커밋 (이번 세션이 출시할 대상)
+- `934ef1a` feat: v1.6.0 — 자치구 고용·인구동태 정밀 라우팅 확장 (14종 KOSIS 통계표)
+- `69adb3a` fix: 행정구역 통합 자치구 코드 후보 순회 + 실전 질의 100 종합 시뮬
+- `35e8e9c` fix: 전국 시군구 전수 라우팅 — 군포시 누락·광역시도명 변형·동명 시군
+
+### v1.6.0에서 완료된 것 (반복 X)
+- 자치구 정밀 라우팅 14종 통계표 — 인구·출산·고령·의사·아파트/전세·고용률·취업자·실업률·사망자수·사망률·혼인·이혼
+- `getDistrictKscdCandidatesFor` — 통합 자치구(청주·창원) 코드 후보 순회, 광역시도명 정규화, 동명 시군(고성군) 코드 disambiguate
+- `DistrictOpenApiRoute` — objL2 / districtObjLevel·extraObjL1 (objLevel swap) 옵션
+- 시뮬 3종 **897 케이스 100%** — district-routing 108 + realworld-100 105 + nationwide 684
 
 ---
 
-## 2. 이번 세션 목표
+## 2. 이번 세션 목표 — 출시 전 최종 관문
 
-**프로덕션 운영 관점 + 공무원 현업 시나리오**로 추가 엣지 발굴 + 보강. 단순 자연어 통과를 넘어서 **실제 공무원이 답변·보고·정책수립에 쓰는 시나리오** 전체 흐름이 매끄럽게 끝나는지 검증.
+**프로덕션 리뷰 + 성능 검증을 통과시킨 뒤 v1.6.0 출시**.
 
 종료 조건:
-- 공무원 시나리오 30+개 자연스럽게 통과 (또는 명확한 한계 안내)
-- 프로덕션 체크리스트 7개 모두 통과
-- 발견된 이슈 수정 후 main 푸시 + Fly 재배포 + 라이브 재검증
-- `scripts/simulate-realworld.mjs` (신규) — 시나리오 자동화
+- 프로덕션 리뷰 체크리스트 전 항목 통과 (또는 의식적 보류 결정 + 사유 기록)
+- 성능 검증 항목 전부 측정 + 기준 충족
+- 시뮬 3종 897 케이스 회귀 100% 유지
+- Fly 재배포(v1.5.0 → v1.6.0) + 라이브 스모크 테스트 + npm v1.6.0 게시 + main 푸시
+- ※ 배포·게시·푸시는 외부 영향 작업 — 직전 세션에서 사용자가 "로컬 커밋만" 선택했으므로 **이번에도 진행 전 사용자 확인 필수**
 
 ---
 
-## 3. 우선순위 점검 영역
+## 3. 프로덕션 리뷰 체크리스트
 
-### 🔴 P0 — 프로덕션 운영 리스크 (확실히 검증 필요)
-1. **`chain_*` 동시 호출 부하** — `chain_region_brief`는 13회 quickStats 병렬. 동시에 N요청이 오면 KOSIS API rate-limit 직격? 캐시·재시도 동작 확인. Fly 로그 모니터링.
-2. **응답 크기 폭주** — `chain_compare_regions({ regions: 17, keywords: 8 })` = 136 cells. dataPoints까지 포함되면 50KB+ 가능. truncate 필요?
-3. **부분 실패 메시지 일관성** — chain에서 일부 지표만 실패할 때 LLM이 "성공/실패" 구분 가능한가? 현재 `successCount` 노출 OK, 개별 cell도 success 필드 OK. 다만 brief의 `summary`가 성공한 것만 나열 — 실패한 항목은 어떻게 LLM이 인지하나?
-4. **자치구 fallback 노트 누락** — chain_region_brief에서 자치구 region을 받으면, 첫 indicator 호출의 note가 fallbackNote에 들어감. 나머지 12개 indicator note는 버려짐. 일관 안내가 필요.
-5. **chain_policy_indicator의 미래연도 데이터 혼입** — 노령화지수(`DT_1YL12501E`)는 2000~2052 추계 포함. 최신 10개 = 2043~2052 (미래). 실측 vs 추계 구분 안 됨. LLM이 잘못 인용 위험.
+### 🔴 P0 — 출시 차단 가능 항목
+1. **빌드·타입 클린** — `rm -rf dist && npx tsc` 무경고. (ESLint는 설정 파일 없음 — 기존 상태, 무시)
+2. **회귀 100%** — 시뮬 3종 전부 재실행:
+   ```bash
+   node scripts/simulate-district-routing.mjs   # 108/108
+   node scripts/simulate-realworld-100.mjs      # 105/105 + 키워드 91/91 + 시도 17/17
+   node scripts/simulate-nationwide.mjs         # 684/684 자치구 정밀 100%
+   ```
+3. **버전 정합성** — `package.json`(1.6.0) · `server.ts` 내 version · `/health` 응답 · `fly.toml` 모두 일치. 도구 수 12개 일치.
+4. **보안 — API 키 노출 평가** — `src/config/index.ts:4` `DEFAULT_KOSIS_KEY` 하드코딩 (GitHub public 노출 상태). KOSIS 키는 무료 발급이나 노출 시 일 쿼터 소진 위험. 판단: (a) `.env` 전용으로 옮기고 fallback 제거, (b) 의도적 데모용 fallback으로 유지 + 문서화 — **사용자와 결정**.
+5. **에러 핸들링 일관성** — KOSIS API 다운/타임아웃 시 quickStats가 부분 degrade(자치구→광역→전국)로 끝나는지, 전체 throw 없는지. chain 도구는 부분 실패를 successCount로 노출하는지.
+6. **로그 보안** — `fly logs`에 KOSIS API 키가 URL 쿼리로 노출되지 않는지 (`maskSensitiveUrl` 등 스크럽 확인).
 
-### 🟡 P1 — 자연어 라우팅 정확도
-6. **chain_* 자연어 트리거** — LLM이 description만 보고 "○○시 종합 보고서" → chain_region_brief 정확히 선택하는가? "서울/부산 비교" → chain_compare_regions? "저출산 추세" → chain_policy_indicator vs quick_trend 어느 쪽? 실측 필요.
-7. **chain_compare_regions에 자치구 섞임** — `regions: ["광진구", "강남구"]` → 모두 서울로 fallback되면 동일 데이터 비교가 됨. 무의미 결과.
-8. **chain_policy_indicator에 자치구 region** — 위와 동일 이슈. 광역시도 fallback 후 동일 데이터.
-
-### 🟢 P2 — 공무원 시나리오 커버리지
-9. **연도/기간 자연어** — "작년 대비", "지난 5년", "민선 8기" → 자동 yearCount 추정 필요?
-10. **공약 검증** — "출생률 회복 공약 1년 후 효과" → 시작연도-끝연도 변화율 출력
-11. **국정감사용 시도 순위표** — "전국 시도 인구 순위" → 전국 17개 전체 비교
-
----
-
-## 4. 공무원 현업 시나리오 (반드시 통과시킬 35개)
-
-### A. 시정·구정 보고서 (한장 브리핑)
-1. "광진구 종합 통계 보고서" → chain_region_brief("광진구") + 자치구 fallback 자연어 안내
-2. "성남시 인구 동향 한 페이지" → chain_region_brief("성남시")
-3. "춘천시 핵심 지표" → chain_region_brief("춘천시")
-4. "여수시 통계 한눈에" → chain_region_brief("여수시")
-5. "광주광역시 한장 보고" → chain_region_brief("광주")
-
-### B. 지방의회 답변 준비
-6. "주민이 우리 시 인구 줄어든다고 우려하는데" → quick_trend("인구", region=시도)
-7. "출생률 회복 공약 1년차 효과" → quick_trend("출산율", yearCount=2)
-8. "취임 1년 핵심 지표 변화" → chain_policy_indicator(yearCount=2)
-9. "민원: 우리 동네 의사 수 다른 시군보다 적다고 한다" → chain_compare_regions(인접 시도, "의사수")
-10. "전국 시도 중 우리 GRDP 순위" → chain_compare_regions(전국 17개, "GRDP")
-
-### C. 예산편성·사업계획
-11. "복지예산 산정용 65세 이상 인구 5년 추계" → quick_trend("고령인구", yearCount=5)
-12. "주거 정책 기초자료 (3년 가격 변화)" → chain_policy_indicator("housing", yearCount=3)
-13. "교통안전 사업 근거 자료" → chain_policy_indicator("safety")
-14. "보건소 증설 근거 (의사수 부족)" → chain_compare_regions(시군 비교, "의사수")
-15. "출산장려금 효과 검토" → chain_policy_indicator("lowFertility", region=시군)
-
-### D. 정책 영향평가·연구
-16. "수도권 vs 비수도권 출산율 비교" → chain_compare_regions(["서울","경기","인천"] vs 비수도권)
-17. "광역시 5개 GRDP 5년 추세" → 다지역 시계열
-18. "고령화 가속도 시도별 비교" → chain_compare_regions(전국, "고령인구")
-19. "주택가격 상승률 시도 순위" → chain_compare_regions(전국, "아파트가격")
-
-### E. 부처별 정기 보고
-20. "고용노동부 보고용 실업률/고용률" → chain_policy_indicator("jobs")
-21. "복지부 보고용 고령화 지표" → chain_policy_indicator("aging")
-22. "교육부 보고용 청년 지표" (해당 키워드 없으면 명확 안내)
-23. "환경부 보고용 미세먼지 시도 비교" → chain_compare_regions(전국, "미세먼지")
-24. "통계청 인구동향 월간 보고" → quick_stats("출생아수", period="M")
-
-### F. 시도지사·구청장 연설
-25. "임기 4년간 핵심 지표 변화 (인구/일자리/주거)" → chain_policy_indicator 3회
-26. "우리 시 자랑할 통계 3개" → chain_region_brief + 전국 평균 비교
-27. "취임사용 한 줄 통계" — chain_region_brief의 한 줄 요약
-
-### G. 민원 응답·홍보
-28. "우리 시 인구가 줄어드는 게 사실이냐" → quick_trend("인구")
-29. "OO시가 살기 좋은 도시 1위인가" → chain_compare_regions 다지표 종합
-30. "출생아 0명 우려" → quick_stats("출생아수", period="M")
-
-### H. 국정감사·예결산
-31. "타 광역시 대비 우리 시 사업 효과" → chain_compare_regions
-32. "지난 정부 vs 현 정부 통계 비교" — period 비교 (구현 필요?)
-33. "감사용 5년 추세 일관 자료" → chain_policy_indicator(yearCount=5)
-
-### I. 영문 보고 (외빈/국제기구)
-34. "Korea's fertility rate trend for OECD report" → quick_trend("fertility")
-35. "Seoul vs Tokyo comparable indicators" — 한국 데이터만이라 한계 안내 필요
+### 🟡 P1 — 출시 후 후속 가능하나 점검 권장
+7. **파일 크기** (CLAUDE.md 기준) — `quickStatsParams.ts` **1398줄 (>1200, 분리 권고)**, `quickStats.ts` 773줄(⚠️), `districtFileMap.ts` 609줄(⚠️). 분리 여부 판단 — 단 출시 직전 대규모 리팩터링은 회귀 리스크, 별도 작업 권장 가능.
+8. **데드코드** — `getDistrictKscdCode`(DT_1B040A3 전용 wrapper)가 현재 미사용. 언급만 — 삭제는 신중히.
+9. **README 정합성** — v1.6.0 변경 이력·키워드 수·14종 통계표 반영 확인 (직전 세션에서 갱신함).
+10. **노령화지수 매핑 불일치** (직전 세션 발견, 범위 밖 보류) — 광역은 `DT_1YL12501E` 2052년 추계 / 자치구는 `DT_1YL20631` 고령인구비율. 명칭·기준 불일치. 출시 차단은 아님 — 별도 이슈로 기록할지 결정.
 
 ---
 
-## 5. 프로덕션 체크리스트 (7개)
+## 4. 최종 성능 검증
 
-1. **응답 크기** — `chain_compare_regions({ regions: 17개, keywords: 5개 })` 응답 50KB 이하인가? 초과 시 truncate.
-2. **동시성·rate-limit** — 동일 IP에서 5개 chain 동시 호출 시 KOSIS API rate-limit 안 터지나? 캐시 효과 측정.
-3. **Cold start** — Fly가 sleep 후 깨어날 때 첫 응답 ~3초 이내인가? Health check 우회 가능한가?
-4. **에러 일관성** — KOSIS API down 시 chain이 부분 실패로 응답 (전체 500 X)? 메시지 형식 일관성?
-5. **로그 보안** — `fly logs` 출력에 KOSIS API 키 노출 없나? `maskSensitiveUrl` 동등 처리 확인.
-6. **메모리 누수** — 장시간 운영 시 LRU 캐시 eviction 정상? heap 누수 모니터링.
-7. **버전 정합성** — `/health` `tools: 13`, `version: 1.3.0`, server.ts version, package.json version 모두 일치?
+측정 항목 (라이브 또는 로컬 `node -e`):
+
+1. **자치구 라우팅 응답시간** — cold path: `.xlsx` 통계연보 시도 → 실패 → OpenAPI 라우팅 fallback 체인. 자치구 인구/고용률/사망률 각 p50·p95 측정. 기준: 단건 < 2s.
+2. **통합 자치구 후보 순회 비용** — 청주시·창원시는 구코드 결측 → 통합코드 재시도로 KOSIS 호출 2회. 정상 자치구(1회) 대비 지연 폭 측정.
+3. **캐시 효율** — 동일 질의 2회차 응답시간 (메타 캐시 + 데이터 캐시 hit). cold 대비 단축률.
+4. **chain 도구 부하** — `chain_region_brief`는 다지표 병렬 quickStats. 동시 호출 시 KOSIS rate-limit 직격 여부 + 응답 크기.
+5. **KOSIS API 안정성** — `fetchKosisExcel` 3-fetch 및 OpenAPI client의 retry/timeout(15s, 지수 백오프 3회)이 실제 타임아웃 상황에서 동작하는지.
+6. **Fly cold start** — 슬립 후 첫 응답 시간.
+
+성능 시뮬 스크립트 신규 작성 고려: `scripts/benchmark.mjs` — 위 1~3을 자동 측정·리포트.
 
 ---
 
-## 6. 워크플로우
+## 5. 출시 절차 (검증 통과 후, 사용자 확인 하에)
 
 ```
-실전 시나리오 → 결과 검토 → 부자연/실패 발견 → 시뮬레이션 케이스 추가
-→ 외과적 수정 → 로컬 시뮬레이션 통과 → tsc → fly deploy --remote-only
-→ 라이브 재검증 → main 커밋·푸시
+rm -rf dist && npx tsc
+→ 시뮬 3종 재실행 (897/897 확인)
+→ export FLY_ACCESS_TOKEN=$(grep "access_token:" ~/.fly/config.yml | sed 's/access_token: //')
+→ fly deploy --remote-only
+→ 라이브 스모크 테스트 (아래 cheat sheet)
+→ npm publish   (npm 게시본 1.5.0 → 1.6.0)
+→ git push origin main   (커밋 3개)
 ```
 
-CLAUDE.md 글로벌 원칙 준수: **추측 금지, 외과적 수정, 인접 코드 건드리지 마라, 동일 접근 3회 실패 시 STOP**.
+주의: git committer가 `Mongmini <mong-e@...local>`로 자동 설정됨 — 푸시 전 author 확인. Vercel 아닌 Fly라 author 차단 이슈는 없음.
 
 ---
 
-## 7. cheat sheet
+## 6. cheat sheet
 
-### 로컬 시뮬레이션
+### 시뮬 3종
 ```bash
-cd ~/workspace/korean-stats-mcp
-npx tsc
-node scripts/simulate-edge-cases.mjs 2>&1 | grep -E "^(✅|⚠️|❌)" | tail -30
-node scripts/simulate-chains.mjs
-# 신규 작성: node scripts/simulate-realworld.mjs
+cd ~/workspace/korean-stats-mcp && rm -rf dist && npx tsc
+node scripts/simulate-district-routing.mjs
+node scripts/simulate-realworld-100.mjs
+node scripts/simulate-nationwide.mjs
 ```
 
-### 라이브 단건 호출
+### 라이브 스모크 테스트 (배포 후)
 ```bash
 node -e "
 fetch('https://korean-stats-mcp.fly.dev/mcp', {
   method:'POST',
   headers:{'Content-Type':'application/json','Accept':'application/json, text/event-stream'},
-  body: JSON.stringify({jsonrpc:'2.0',method:'tools/call',id:1,params:{name:'<tool>',arguments:<args>}})
-}).then(r=>r.text()).then(t=>{const j=JSON.parse(t);console.log(j.result.content[0].text)});
-"
+  body: JSON.stringify({jsonrpc:'2.0',method:'tools/call',id:1,params:{name:'quick_stats',arguments:{query:'광진구 고용률'}}})
+}).then(r=>r.text()).then(t=>console.log(t.slice(0,600)))"
 ```
 
-### 체인 도구 (라이브)
+### 로컬 quickStats 직접 호출
 ```bash
-# chain_region_brief
-... name:'chain_region_brief', arguments:{region:'성남시', includeNational:true}
-
-# chain_compare_regions
-... name:'chain_compare_regions', arguments:{regions:['서울','부산','인천'], keywords:['인구','출산율','GRDP']}
-
-# chain_policy_indicator
-... name:'chain_policy_indicator', arguments:{domain:'lowFertility', region:'서울', yearCount:10}
+node -e "import('./dist/tools/quickStats.js').then(async({quickStats})=>{console.log(await quickStats({query:'수원시 사망률'}))})"
 ```
 
-### Fly 로그 (실시간)
+### Fly 로그·배포
 ```bash
 export FLY_ACCESS_TOKEN=$(grep "access_token:" ~/.fly/config.yml | sed 's/access_token: //')
 fly logs --app korean-stats-mcp --no-tail | tail -80
-```
-
-### Fly 재배포
-```bash
-cd ~/workspace/korean-stats-mcp
-npx tsc
-export FLY_ACCESS_TOKEN=$(grep "access_token:" ~/.fly/config.yml | sed 's/access_token: //')
 fly deploy --remote-only
 ```
 
 ---
 
-## 8. 파일 위치 참조
+## 7. 파일 위치
 
 | 영역 | 파일 |
 |---|---|
-| 91 키워드 매핑 | `src/data/quickStatsParams.ts` (`QUICK_STATS_PARAMS`, `KEYWORD_ALIASES`) |
-| 광역시도 17 + 자치구·시군 200+ | `src/utils/regions.ts` (`PROVINCES`, `DISTRICT_TO_PROVINCE`, `AMBIGUOUS_DISTRICTS`) |
-| quick_stats | `src/tools/quickStats.ts` (자연어 추출 + 자치구 disambiguate + 광역시도 fallback) |
-| quick_trend | `src/tools/quickTrend.ts` (P0-1 자연어 keyword 처리 완료) |
-| **체인 3종** | `src/tools/chains.ts` (`chainRegionBrief`, `chainCompareRegions`, `chainPolicyIndicator`) |
-| HTTP 서버 | `src/server-http.ts` (Express stateless, rate-limit, scrub) |
-| MCP 서버 | `src/server.ts` (13개 도구 등록) |
-| 시뮬레이션 | `scripts/simulate-edge-cases.mjs` (90개), `scripts/simulate-chains.mjs` (18개) |
+| 91 키워드 매핑 | `src/data/quickStatsParams.ts` (1398줄) |
+| 자치구 라우팅 매핑 | `src/data/districtFileMap.ts` (`DISTRICT_OPENAPI_ROUTES`) |
+| 자치구 코드 lookup | `src/utils/districtKosisCodes.ts` (`getDistrictKscdCandidatesFor`) |
+| 광역시도·정규화 | `src/utils/regions.ts` (`normalizeProvinceName`, `DISTRICT_TO_PROVINCE`) |
+| quickStats | `src/tools/quickStats.ts` (773줄 — 2.5 xlsx / 2.6 OpenAPI 라우팅 분기) |
+| KOSIS 클라이언트 | `src/api/client.ts` (retry/timeout) |
+| 설정·API 키 | `src/config/index.ts` |
+| MCP 서버 | `src/server.ts` (12개 도구 등록) |
+| 시뮬 | `scripts/simulate-{district-routing,realworld-100,nationwide}.mjs` |
 
 ---
 
-## 9. 추가 검토할 신규 도구 (시간 여유 시)
-
-- **`chain_speech_brief`** — 시도지사·구청장 연설용 1줄 통계 모음 (chain_region_brief의 한 줄 요약 강화 버전). "취임사", "신년사" 자연어 라우팅.
-- **`verify_stat_citation`** — LLM 텍스트의 "○○년 △△ 통계는 X" 형태 인용을 KOSIS DB와 교차검증. korean-law-mcp의 `verify_citations` 동등.
-- **`forecast_indicator`** — KOSIS 장래추계인구 + 추세 외삽 (5~30년 후 예측). 노령화지수의 추계 데이터 활용.
-- **`chain_compare_periods`** — 같은 지역의 시점 비교 (작년 대비 / 5년 대비 / 임기 비교). "민선 8기 변화"
-
----
-
-## 10. 실제 시작 멘트 예시 (새 세션 첫 응답)
+## 8. 시작 멘트 예시
 
 ```
-korean-stats-mcp v1.3.0 프로덕션 리뷰 + 공무원 현업 실전 테스트 시작.
+korean-stats-mcp v1.6.0 출시 전 프로덕션 리뷰 + 성능 검증 시작.
 
-먼저 P0 운영 리스크부터 — chain_compare_regions({regions: 전국 17개, keywords: 5개})로
-응답 크기 측정. 50KB 초과 시 truncate 필요한지 판단.
-동시에 LLM이 description만 보고 "광진구 종합 보고서" → chain_region_brief 정확히 호출하는지 라이브 호출로 검증.
+먼저 P0 — 클린 빌드 후 시뮬 3종(897 케이스) 회귀 확인.
+이어서 버전 정합성 + DEFAULT_KOSIS_KEY 노출 평가 + 에러 핸들링 점검.
+성능: 자치구 라우팅 응답시간 p50/p95, 통합 자치구 후보 순회 비용, 캐시 효율 측정.
+
+전부 통과하면 출시 절차(Fly 배포 + npm + push)는 사용자 확인 후 진행.
 ```
-
-— 즉, **프로덕션 운영 한계 + LLM 자율 라우팅 정확도**가 핵심 두 축.
 
 ---
 
-## 11. 주의/제약 재확인 (CLAUDE.md 글로벌)
+## 9. 주의 (CLAUDE.md 글로벌)
 
-- 외과적 수정. 변경된 줄이 요청에 직접 연결되는지 자가 점검
-- 1회성 코드에 Factory/Builder 등 디자인 패턴 금지
-- 발생 불가능한 시나리오 에러 핸들링 금지
-- 동일 접근 3회 실패 시 STOP → 원인 분석 → 재계획
-- 모호한 요구사항은 임의 결정 금지, 사용자 확인
-- 명확한 버그(failing test, 에러 로그)는 질문 없이 수정 후 보고
-- git 작업은 사용자 명시 요청 시에만 (commit/push)
-- chris-v3 output style: 한국어 반말/구어체, 간결
-- description 변경 시 korean-law-mcp 패턴 (`[태그]` + cross-reference) 유지
+- 외과적 수정 — 출시 직전이라 회귀 리스크 최소화. 변경된 줄이 요청에 직접 연결되는지 자가 점검.
+- 큰 파일 분리는 출시 후 별도 작업 권장 (출시 직전 대규모 리팩터링 지양).
+- 배포·게시·푸시는 외부 영향 — 사용자 확인 필수.
+- 동일 접근 3회 실패 시 STOP → 원인 분석 → 재계획.
