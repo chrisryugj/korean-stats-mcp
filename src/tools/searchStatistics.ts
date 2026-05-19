@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { getKosisClient } from '../api/client.js';
 import { getCacheManager } from '../cache/index.js';
 import { parseQuery, generateSearchTerms, REGION_NAMES } from '../utils/queryParser.js';
+import { detectRegion, isProvinceBaseStat } from '../utils/regions.js';
 import type { SimplifiedStatisticsItem } from '../api/types.js';
 
 /**
@@ -141,6 +142,8 @@ export async function searchStatistics(
     topics: string[];
     regions: string[];
     intent: string;
+    district?: string;
+    province?: string;
   };
   suggestions?: string[];
 }> {
@@ -155,16 +158,23 @@ export async function searchStatistics(
   const regionNames = parsed.regions.map(code => REGION_NAMES[code]).filter(Boolean);
   const hasRegion = regionNames.length > 0;
 
+  // 자치구·시·군 감지 → 「OO광역시도 기본통계」시리즈 라우팅
+  const detected = detectRegion(input.query);
+  const districtName = detected.district;
+  const provinceOrgId = detected.province?.orgId;
+  // 명시적 orgId 우선, 없으면 자치구 감지 결과 활용
+  const effectiveOrgId = input.orgId ?? provinceOrgId;
+
   // 검색어 결정 - 지역이 있으면 조합 검색어 우선, 없으면 원본 쿼리
   const searchWord = searchTerms.length > 0 ? searchTerms[0] : input.query;
 
   try {
     // 캐시된 검색 결과 조회
     let results = await cache.getSearchResults(
-      { query: searchWord, orgId: input.orgId, sort: input.sort },
+      { query: searchWord, orgId: effectiveOrgId, sort: input.sort },
       async () => {
         return client.searchStatistics(searchWord, {
-          orgId: input.orgId,
+          orgId: effectiveOrgId,
           sort: input.sort,
           startCount: 1,
           resultCount: input.limit ? input.limit * 2 : 20, // 지역 필터링을 위해 더 많이 조회
@@ -193,6 +203,14 @@ export async function searchStatistics(
     if (results.length > 0) {
       // 3. 결과 정렬 - 우선 테이블과 지역명 고려
       results = results.sort((a, b) => {
+        // 자치구 감지 시: 해당 광역시도 「기본통계」 시리즈 (DT_2xx004_*) 최우선
+        if (districtName && provinceOrgId) {
+          const aIsBase = isProvinceBaseStat(a.ORG_ID, a.TBL_ID) != null;
+          const bIsBase = isProvinceBaseStat(b.ORG_ID, b.TBL_ID) != null;
+          if (aIsBase && !bIsBase) return -1;
+          if (!aIsBase && bIsBase) return 1;
+        }
+
         // 우선 테이블 점수 계산 (낮을수록 우선)
         const aPriority = getPriorityScore(a.TBL_ID, priorityTableIds);
         const bPriority = getPriorityScore(b.TBL_ID, priorityTableIds);
@@ -254,12 +272,18 @@ export async function searchStatistics(
     const suggestions: string[] = [];
     if (simplifiedResults.length > 0) {
       const firstResult = simplifiedResults[0];
-      suggestions.push(
-        `"${firstResult.tableName}"의 최근 데이터 조회`,
-        `${firstResult.orgName}의 다른 통계 검색`,
-      );
+      if (districtName) {
+        suggestions.push(
+          `"${firstResult.tableName}"에서 ${districtName} 데이터 조회 (regionName="${districtName}")`,
+        );
+      } else {
+        suggestions.push(
+          `"${firstResult.tableName}"의 최근 데이터 조회`,
+          `${firstResult.orgName}의 다른 통계 검색`,
+        );
+      }
 
-      if (parsed.regions.length === 0) {
+      if (parsed.regions.length === 0 && !districtName) {
         suggestions.push('서울, 부산 등 지역별 데이터 비교');
       }
 
@@ -276,6 +300,8 @@ export async function searchStatistics(
         topics: parsed.topics,
         regions: parsed.regions,
         intent: parsed.intent,
+        district: districtName,
+        province: detected.province?.fullName,
       },
       suggestions,
     };

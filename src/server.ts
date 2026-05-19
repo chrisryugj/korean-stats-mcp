@@ -20,12 +20,14 @@ import {
   analyzeTimeSeriesSchema,
   getRecommendedStats,
   getRecommendedStatsSchema,
-  // getTableInfo - 응답량이 너무 커서 Cursor 초기화 유발, 비활성화
-  // getTableInfoSchema,
+  getTableInfo,
+  getTableInfoSchema,
   quickStats,
   quickStatsSchema,
   quickTrend,
   quickTrendSchema,
+  fetchKosisExcel,
+  fetchKosisExcelSchema,
 } from './tools/index.js';
 
 // 리소스 가져오기
@@ -164,24 +166,23 @@ export function createServer(): McpServer {
     }
   );
 
-  // 7. 통계표 정보 조회 - 비활성화 (응답량 과다로 Cursor 초기화 유발)
-  // 대신 quick_stats가 정적 파라미터를 사용하여 동일 기능 제공
-  // server.tool(
-  //   getTableInfoSchema.name,
-  //   getTableInfoSchema.description,
-  //   getTableInfoSchema.inputSchema.shape,
-  //   async (args) => {
-  //     const result = await getTableInfo(args as any);
-  //     return {
-  //       content: [
-  //         {
-  //           type: 'text' as const,
-  //           text: JSON.stringify(result, null, 2),
-  //         },
-  //       ],
-  //     };
-  //   }
-  // );
+  // 7. 통계표 정보 조회 (경량화 — filter + sampleSize)
+  server.tool(
+    getTableInfoSchema.name,
+    getTableInfoSchema.description,
+    getTableInfoSchema.inputSchema.shape,
+    async (args) => {
+      const result = await getTableInfo(args as any);
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    }
+  );
 
   // 8. 빠른 통계 조회 (원스텝)
   server.tool(
@@ -208,6 +209,24 @@ export function createServer(): McpServer {
     quickTrendSchema.inputSchema.shape,
     async (args) => {
       const result = await quickTrend(args as any);
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // 10. KOSIS 엑셀 파일 통계표 파싱 (OpenAPI 미지원 통계 — 자치구 기본통계 등)
+  server.tool(
+    fetchKosisExcelSchema.name,
+    fetchKosisExcelSchema.description,
+    fetchKosisExcelSchema.inputSchema.shape,
+    async (args) => {
+      const result = await fetchKosisExcel(args as any);
       return {
         content: [
           {

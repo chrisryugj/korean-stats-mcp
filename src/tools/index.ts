@@ -40,12 +40,12 @@ export {
   type GetRecommendedStatsInput,
 } from './getRecommendedStats.js';
 
-// 비활성화: 응답량 과다로 Cursor 초기화 유발
-// export {
-//   getTableInfo,
-//   getTableInfoSchema,
-//   type GetTableInfoInput,
-// } from './getTableInfo.js';
+// 경량화 후 재활성화: filter + sampleSize로 응답량 제한
+export {
+  getTableInfo,
+  getTableInfoSchema,
+  type GetTableInfoInput,
+} from './getTableInfo.js';
 
 export {
   quickStats,
@@ -58,6 +58,12 @@ export {
   quickTrendSchema,
   type QuickTrendInput,
 } from './quickTrend.js';
+
+export {
+  fetchKosisExcel,
+  fetchKosisExcelSchema,
+  type FetchKosisExcelInput,
+} from './fetchKosisExcel.js';
 
 // 도구 스키마들은 개별적으로 export되어 있습니다.
 // server.ts에서 직접 import하여 사용하세요.
