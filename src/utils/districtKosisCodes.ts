@@ -11,7 +11,7 @@
  */
 
 import { getKosisClient } from '../api/client.js';
-import { findProvinceByDistrict, type ProvinceInfo } from './regions.js';
+import { findProvinceByDistrict, normalizeProvinceName, type ProvinceInfo } from './regions.js';
 
 /** ProvinceInfo.orgId (201~218) → KOSIS 행정구역 코드 (2자리) */
 const PROVINCE_ORGID_TO_KSCD: Record<string, string> = {
@@ -77,6 +77,15 @@ const loadingPromises = new Map<string, Promise<TableCodeIndex>>();
  */
 const OBJ_ID_CANDIDATES = ['A', 'SGG', 'region', 'C1', 'C2'] as const;
 
+/**
+ * DT_1ES3A03_A01S·DT_1ES3A01S 도 시군 코드(4자리 3Xnn) 둘째 자리 → 광역시도 약칭.
+ * 동명 시군(고성군)을 광역시도 명시로 disambiguate할 때 사용.
+ */
+const KOSIS_DIST_CODE_PROVINCE: Record<string, string> = {
+  '1': '경기', '2': '강원', '3': '충북', '4': '충남',
+  '5': '전북', '6': '전남', '7': '경북', '8': '경남', '9': '제주',
+};
+
 async function loadDistrictCodesFor(
   orgId: string,
   tblId: string,
@@ -103,10 +112,10 @@ async function loadDistrictCodesFor(
         }
       }
 
-      // 광역시도 ITM_ID → ITM_NM 역색인
+      // 광역시도 ITM_ID → 표준 약칭 역색인 (테이블별 명칭 변형 정규화 — "전라북도"/"전북특별자치도" → "전북")
       const provinceNameByItmId = new Map<string, string>();
       for (const [name, id] of provinceItmIdByName.entries()) {
-        provinceNameByItmId.set(id, name);
+        provinceNameByItmId.set(id, normalizeProvinceName(name));
       }
 
       // 2) 자치구 행 (UP_ITM_ID 보유) + UP_ITM_ID 비어있는 자치구 ITM_NM 직접 인덱스
@@ -132,11 +141,18 @@ async function loadDistrictCodesFor(
         } else {
           // UP_ITM_ID 비어있음 — DT_1ES3A03_A01S 같은 케이스.
           // ITM_NM 그대로 키 (광역시 자치구는 "서울 광진구" 결합형, 도 시군은 "수원시" 단일형).
-          // 동명 중복(강원·경남 "고성군")은 disambiguate 불가 — ambiguous로 마킹.
+          // 동명 중복(강원·경남 "고성군")은 단일 키로는 disambiguate 불가 — ambiguous로 마킹.
           if (byItmName.has(r.ITM_NM)) {
             ambiguousItmNames.add(r.ITM_NM);
           } else {
             byItmName.set(r.ITM_NM, r.ITM_ID);
+          }
+          // 도 시군 4자리 코드(3Xnn — X=도 번호)면 "{도} {시군}" 결합 키도 등록.
+          // 동명 시군(고성군 3240=강원/3834=경남)을 광역시도 명시로 disambiguate.
+          const m = r.ITM_ID.match(/^3(\d)\d\d$/);
+          if (m) {
+            const provShort = KOSIS_DIST_CODE_PROVINCE[m[1]];
+            if (provShort) byItmName.set(`${provShort} ${r.ITM_NM}`, r.ITM_ID);
           }
         }
       }
@@ -198,23 +214,10 @@ export async function getDistrictKscdCandidatesFor(
   const { byProvinceName, byItmName, ambiguousItmNames } = idx;
 
   // ── 1) UP_ITM_ID 기반 매칭 (DT_1B040A3, DT_1B81A23, INH_* 등 표준 구조) ──
+  // byProvinceName 키는 normalizeProvinceName으로 표준 약칭화돼 있어 prov.shortName 직접 매칭.
   if (prov) {
-    const provCandidates: string[] = [prov.fullName, prov.shortName];
-    for (const c of provCandidates) {
-      const codes = byProvinceName.get(`${c}:${districtName}`);
-      if (codes && codes.length > 0) return codes;
-    }
-    // shortName이 메타 광역시도명의 startsWith 매칭 (예: "강원" → "강원특별자치도")
-    for (const [key, codes] of byProvinceName.entries()) {
-      const colon = key.indexOf(':');
-      if (colon === -1) continue;
-      const provNm = key.slice(0, colon);
-      const distNm = key.slice(colon + 1);
-      if (distNm !== districtName) continue;
-      if (provNm.startsWith(prov.shortName) || prov.fullName.startsWith(provNm)) {
-        return codes;
-      }
-    }
+    const codes = byProvinceName.get(`${prov.shortName}:${districtName}`);
+    if (codes && codes.length > 0) return codes;
   }
 
   // ── 2) UP_ITM_ID 없는 메타 fallback (DT_1ES3A03_A01S 등) ──
