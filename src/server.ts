@@ -50,10 +50,10 @@ export function createServer(): McpServer {
   validateConfig();
 
   const server = new McpServer({
-    name: 'korea-stats-mcp',
-    version: '1.0.0',
+    name: 'korean-stats-mcp',
+    version: '1.2.0',
     description:
-      '한국 통계청 KOSIS OpenAPI 기반 MCP 서버 - 자연어로 통계 데이터를 검색하고 분석합니다.',
+      '한국 통계청 KOSIS OpenAPI 기반 MCP 서버 - 자연어로 통계 데이터를 검색·분석. 91개 키워드, 17개 시도 + 자치구 라우팅, 시계열 추세 분석.',
   });
 
   // ===== 도구 등록 =====

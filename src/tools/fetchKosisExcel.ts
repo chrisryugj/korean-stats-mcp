@@ -14,7 +14,16 @@
  */
 
 import { z } from 'zod';
-import { parse } from 'kordoc';
+// kordoc은 optionalDependencies — 원격 배포(Vercel)에서는 함수 사이즈 한도(250MB)
+// 때문에 제외됩니다. 로컬 설치에서만 동적으로 로드합니다.
+async function loadKordoc(): Promise<((ab: ArrayBuffer) => Promise<any>) | null> {
+  try {
+    const mod = await import('kordoc' as any);
+    return mod.parse as (ab: ArrayBuffer) => Promise<any>;
+  } catch {
+    return null;
+  }
+}
 import { resolveDistrictFileTable } from '../utils/regions.js';
 
 const KOSIS_HOST = 'https://stat.kosis.kr';
@@ -356,7 +365,19 @@ export async function fetchKosisExcel(input: FetchKosisExcelInput): Promise<Exce
       };
     }
 
-    // kordoc 파싱 (XLSX → 마크다운)
+    // kordoc 파싱 (XLSX → 마크다운). 원격 배포에선 미설치라 안내 후 종료.
+    const parse = await loadKordoc();
+    if (!parse) {
+      return {
+        success: false,
+        orgId,
+        tblId,
+        fileSn: input.fileSn,
+        fileName: fileMeta?.file_nm ?? info.dwldFileNm,
+        byteSize: ab.byteLength,
+        error: 'kordoc 모듈이 설치돼 있지 않습니다. 자치구 .xlsx 파일 파싱은 로컬 설치(pnpm install)에서만 지원됩니다. 원격 MCP에서는 search_statistics / get_statistics_data 사용.',
+      };
+    }
     const result = await parse(ab);
 
     if (!result.success) {
@@ -380,7 +401,7 @@ export async function fetchKosisExcel(input: FetchKosisExcelInput): Promise<Exce
       fileType: result.fileType,
       byteSize: ab.byteLength,
       markdown: result.markdown,
-      warnings: result.warnings?.map((w) => w.message),
+      warnings: result.warnings?.map((w: { message: string }) => w.message),
     };
   } catch (e) {
     return {

@@ -1,0 +1,28 @@
+# Korean Stats MCP — Fly.io 배포 구성
+#
+# 자치구 .xlsx 파싱(kordoc + sharp + onnxruntime) 의존성이 큰 탓에
+# Vercel 250MB 한도가 안 맞아 Fly.io 컨테이너로 배포.
+
+app = 'korean-stats-mcp'
+primary_region = 'sin'  # Singapore. icn(Seoul)은 일반 plan 미지원, nrt(Tokyo)는 KOSIS API에서 ECONNRESET.
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  NODE_ENV = 'production'
+  PORT = '3000'
+  RATE_LIMIT_RPM = '300'
+  TRUST_PROXY = '1'
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = 'suspend'
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  memory = '512mb'  # kordoc + sharp 동작에 256MB는 빠듯
+  cpu_kind = 'shared'
+  cpus = 1

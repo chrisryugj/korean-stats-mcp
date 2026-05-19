@@ -11,7 +11,10 @@ import {
   getQuickStatsParam,
   getRegionCode,
 } from '../data/quickStatsParams.js';
+import { findProvinceByDistrict, PROVINCES } from '../utils/regions.js';
 import { analyzeTrend } from '../utils/dataFormatter.js';
+
+const DISTRICT_PATTERN = /^[가-힣]{1,4}(구|군|시)$/;
 
 export const quickTrendSchema = {
   name: 'quick_trend',
@@ -82,34 +85,74 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
   const cache = getCacheManager();
 
   try {
-    // 1. 키워드에서 파라미터 조회
-    const param = getQuickStatsParam(input.keyword);
-
-    if (!param) {
-      const supportedKeywords = Object.keys(QUICK_STATS_PARAMS).join(', ');
+    // 0. 빈 키워드 가드
+    const trimmedKeyword = (input.keyword ?? '').trim();
+    if (!trimmedKeyword) {
       return {
         success: false,
-        keyword: input.keyword,
+        keyword: input.keyword ?? '',
         region: '전국',
         trend: 'stable',
         trendDescription: '',
-        summary: `"${input.keyword}"에 대한 추세 분석이 지원되지 않습니다.`,
+        summary: '추세 분석할 통계 키워드를 입력해주세요.',
+        dataPoints: [],
+        insights: [],
+        note: '예: "인구", "출산율", "실업률", "GDP"',
+      };
+    }
+
+    // 1. 키워드에서 파라미터 조회 (대소문자/별칭 지원)
+    const param = getQuickStatsParam(trimmedKeyword);
+
+    if (!param) {
+      const supportedKeywords = Object.keys(QUICK_STATS_PARAMS).slice(0, 30).join(', ') + ' 등';
+      return {
+        success: false,
+        keyword: trimmedKeyword,
+        region: '전국',
+        trend: 'stable',
+        trendDescription: '',
+        summary: `"${trimmedKeyword}"에 대한 추세 분석이 지원되지 않습니다.`,
         dataPoints: [],
         insights: [],
         note: `지원 키워드: ${supportedKeywords}`,
       };
     }
 
-    // 2. 지역 결정
+    // 2. 지역 결정 (자치구 → 광역시도 fallback)
     let regionName = '전국';
     let objL1 = param.objL1;
+    let districtNote: string | null = null;
+    let effectiveRegion = input.region?.trim();
 
-    if (input.region && param.regionCodes) {
-      const regionCode = getRegionCode(param, input.region);
+    if (effectiveRegion && DISTRICT_PATTERN.test(effectiveRegion)) {
+      const prov = findProvinceByDistrict(effectiveRegion);
+      if (prov) {
+        districtNote = `💡 "${effectiveRegion}" 자치구 시계열은 quick_trend가 지원하지 않아 ${prov.shortName} 광역시도 추세로 표시했습니다. 자치구별은 fetch_kosis_excel("${effectiveRegion}", "${trimmedKeyword}")로 조회.`;
+        effectiveRegion = prov.shortName;
+      } else {
+        districtNote = `💡 "${effectiveRegion}" 자치구 매핑이 모호합니다. 전국 추세로 표시합니다.`;
+        effectiveRegion = undefined;
+      }
+    }
+
+    if (effectiveRegion && param.regionCodes) {
+      const regionCode = getRegionCode(param, effectiveRegion);
       if (regionCode !== param.objL1) {
         objL1 = regionCode;
-        regionName = input.region;
+        regionName = effectiveRegion;
       }
+    } else if (effectiveRegion && !param.regionCodes) {
+      return {
+        success: false,
+        keyword: trimmedKeyword,
+        region: effectiveRegion,
+        trend: 'stable',
+        trendDescription: '',
+        summary: `"${trimmedKeyword}" 통계는 지역별 추세를 지원하지 않습니다. 전국 데이터만 제공됩니다.`,
+        dataPoints: [],
+        insights: [],
+      };
     }
 
     // 3. 시계열 데이터 조회
@@ -218,11 +261,12 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
       `${sortedData[0].year}년 ${sortedData[0].formatted}${param.unit}에서 ` +
       `${sortedData[sortedData.length - 1].year}년 ${sortedData[sortedData.length - 1].formatted}${param.unit}로 ` +
       `${parseFloat(totalChange) >= 0 ? '증가' : '감소'}했습니다 (${parseFloat(totalChange) >= 0 ? '+' : ''}${totalChange}%).\n\n` +
-      `📊 출처: ${param.tableName} (KOSIS)`;
+      `📊 출처: ${param.tableName} (KOSIS)` +
+      (districtNote ? `\n\n${districtNote}` : '');
 
     return {
       success: true,
-      keyword: input.keyword,
+      keyword: trimmedKeyword,
       region: regionName,
       trend,
       trendDescription: trendDescriptions[trend],
@@ -234,6 +278,7 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
         tableId: param.tableId,
         tableName: param.tableName,
       },
+      ...(districtNote ? { note: districtNote } : {}),
     };
   } catch (error) {
     console.error('Quick trend error:', error);

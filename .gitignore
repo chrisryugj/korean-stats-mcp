@@ -49,3 +49,4 @@ api-docs/
 
 # Table metadata (개발 참고용)
 data/table-meta/
+.vercel

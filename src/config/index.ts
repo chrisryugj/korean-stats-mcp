@@ -1,10 +1,12 @@
-// dotenv는 하드코딩된 키 사용 시 불필요
-// import 'dotenv/config';
+import 'dotenv/config';
+
+// 우선순위: 환경변수 KOSIS_API_KEY > 내장 키 (배포 환경 친화)
+const DEFAULT_KOSIS_KEY = 'YThiNDdhYjYyMWZlMDA5NWI5NGI0Y2E0OWRiNjZiYTY=';
 
 export const config = {
   // KOSIS API 설정
   kosis: {
-    apiKey: 'MTIyZDEyMjlkOGNiNjhhNjY0YzFmNjNiNzVmMTU2Njg=',  // ← 여기에 실제 키 입력
+    apiKey: process.env.KOSIS_API_KEY || DEFAULT_KOSIS_KEY,
     baseUrl: 'https://kosis.kr/openapi',
     endpoints: {
       statisticsList: '/statisticsList.do',

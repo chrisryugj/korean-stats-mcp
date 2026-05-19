@@ -1181,8 +1181,61 @@ export const QUICK_STATS_PARAMS: Record<string, QuickStatsParam> = {
 /**
  * 키워드로 파라미터 조회
  */
+/**
+ * 자연어 별칭 → 정식 키워드 매핑
+ * (예: "저출산 현황" → "출산율", "고령화" → "고령인구")
+ */
+export const KEYWORD_ALIASES: Record<string, string> = {
+  // 인구/출산
+  '저출산': '출산율',
+  '고령화': '고령인구',
+  '노령화': '노령화지수',
+  '인구통계': '인구',
+  '총인구수': '총인구',
+  // 영문 (lowercase)
+  'population': '인구',
+  'unemployment': '실업률',
+  'employment': '고용률',
+  'fertility': '출산율',
+  'birth': '출생아수',
+  'death': '사망자수',
+  'marriage': '혼인율',
+  'divorce': '이혼율',
+  'inflation': '물가',
+  'cpi': '소비자물가',
+  'export': '수출',
+  'import': '수입',
+};
+
+/**
+ * 키워드 조회 (대소문자 무시 + 별칭 지원)
+ *
+ * 우선순위:
+ *   1. 정확 매칭 (대소문자 그대로)
+ *   2. 별칭 매핑
+ *   3. 대소문자 무시 매칭 (영문 키워드용)
+ */
 export function getQuickStatsParam(keyword: string): QuickStatsParam | undefined {
-  return QUICK_STATS_PARAMS[keyword];
+  if (!keyword) return undefined;
+  const trimmed = keyword.trim();
+  if (!trimmed) return undefined;
+
+  // 1. 정확 매칭
+  if (QUICK_STATS_PARAMS[trimmed]) return QUICK_STATS_PARAMS[trimmed];
+
+  // 2. 별칭 (영문은 소문자로 정규화)
+  const lower = trimmed.toLowerCase();
+  const aliasTarget = KEYWORD_ALIASES[trimmed] ?? KEYWORD_ALIASES[lower];
+  if (aliasTarget && QUICK_STATS_PARAMS[aliasTarget]) {
+    return QUICK_STATS_PARAMS[aliasTarget];
+  }
+
+  // 3. 대소문자 무시 매칭 (GDP/gdp, PM2.5/pm2.5 등)
+  for (const k of Object.keys(QUICK_STATS_PARAMS)) {
+    if (k.toLowerCase() === lower) return QUICK_STATS_PARAMS[k];
+  }
+
+  return undefined;
 }
 
 /**

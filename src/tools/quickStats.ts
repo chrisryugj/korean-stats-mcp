@@ -10,9 +10,20 @@ import { getKosisClient } from '../api/client.js';
 import { getCacheManager } from '../cache/index.js';
 import {
   QUICK_STATS_PARAMS,
+  KEYWORD_ALIASES,
   getQuickStatsParam,
   getRegionCode,
 } from '../data/quickStatsParams.js';
+import { findProvinceByDistrict, PROVINCES } from '../utils/regions.js';
+
+/**
+ * 자치구로 오판하면 안 되는 키워드 집합
+ * (예: "인구"는 "구"로 끝나지만 자치구 아님)
+ */
+const NON_DISTRICT_WORDS = new Set<string>([
+  '인구', '총인구', '수입', '수출', '집값', '월급', '취업', '주가',
+  '노인구', '고령인구', '65세이상인구',
+]);
 
 export const quickStatsSchema = {
   name: 'quick_stats',
@@ -77,19 +88,91 @@ interface QuickStatsResult {
 
 /**
  * 지역명 목록 (쿼리에서 지역 추출용)
+ * - shortName: 17개 광역시도 약칭
+ * - fullName: 풀네임 (서울특별시, 경기도 등). 풀네임 매칭 우선.
  */
-const REGION_NAMES = [
-  '서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종',
-  '경기', '강원', '충북', '충남', '전북', '전남', '경북', '경남', '제주'
-];
+const PROVINCE_SHORT_NAMES = PROVINCES.map((p) => p.shortName);
+const PROVINCE_FULL_NAMES = PROVINCES.map((p) => p.fullName);
+
+/**
+ * 쿼리에서 광역시도 추출
+ *
+ * 부분매칭 버그 방지:
+ *   1. 자치구가 먼저 감지되면 광역시도 매칭은 스킵 (예: "해운대구"에 "대구" 부분매칭 방지)
+ *   2. 풀네임 우선 매칭 (예: "서울특별시" > "서울")
+ *   3. shortName은 단어 단위로 매칭 (앞뒤가 한글이 아니거나 끝)
+ */
+function extractProvinceName(query: string, districtDetected: boolean): string | null {
+  if (districtDetected) return null;
+
+  // 풀네임 우선
+  for (const name of PROVINCE_FULL_NAMES) {
+    if (query.includes(name)) {
+      const idx = PROVINCE_FULL_NAMES.indexOf(name);
+      return PROVINCE_SHORT_NAMES[idx];
+    }
+  }
+
+  // shortName: 단어 단위 매칭 (앞뒤가 한글 자치구/시군 글자가 아닐 때만)
+  for (const name of PROVINCE_SHORT_NAMES) {
+    const idx = query.indexOf(name);
+    if (idx === -1) continue;
+    const before = idx > 0 ? query[idx - 1] : '';
+    const after = idx + name.length < query.length ? query[idx + name.length] : '';
+    // 자치구/시/군 일부일 가능성: 뒤 글자가 '구/시/군'이면 잘못된 부분매칭
+    if (after === '구' || after === '시' || after === '군' || after === '도') {
+      // 단, "경기도", "강원도" 같은 패턴은 위 풀네임 매칭에서 잡혔어야 함.
+      // 여기서는 "해운대구"의 "대구"처럼 잘못 매칭되는 케이스 차단.
+      continue;
+    }
+    // 앞 글자가 한글이면 자치구 일부일 수 있음 (예: "해운대" + "구" 패턴은 위에서 거름)
+    return name;
+  }
+  return null;
+}
+
+/**
+ * 쿼리에서 자치구 감지
+ * 반환: 자치구명 또는 null
+ *
+ * 보장:
+ *   - "인구"/"수입"/"수출" 등 "구/군/시"로 끝나는 키워드는 자치구 아님
+ *   - 광역시도 풀네임("서울특별시" 등) 자치구 아님
+ *   - 정식 KOSIS 키워드/별칭은 자치구 아님
+ */
+function extractDistrictName(query: string): string | null {
+  // 단어 단위로 분리하여 검사 (공백 기준)
+  // "광진구 인구"에서 "광진구"만 자치구 후보로
+  const tokens = query.split(/\s+/);
+  for (const token of tokens) {
+    // 자치구 길이: "남구"(2) ~ "부산진구"(4) — "구/군/시" 포함 총 2~5글자
+    if (!/^[가-힣]{1,4}(구|군|시)$/.test(token)) continue;
+    if (PROVINCE_FULL_NAMES.includes(token)) continue;
+    if (NON_DISTRICT_WORDS.has(token)) continue;
+    if (QUICK_STATS_PARAMS[token]) continue;
+    if (KEYWORD_ALIASES[token]) continue;
+    return token;
+  }
+  return null;
+}
 
 export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResult> {
   const client = getKosisClient();
   const cache = getCacheManager();
 
   try {
+    // 0. 빈 쿼리 가드
+    const trimmedQuery = (input.query ?? '').trim();
+    if (!trimmedQuery) {
+      return {
+        success: false,
+        answer: '조회할 통계 키워드를 입력해주세요.',
+        note: '예: "인구", "실업률", "GDP", "서울 아파트가격". 카테고리별 키워드는 get_recommended_statistics 참고.',
+      };
+    }
+
     // 1. 쿼리에서 키워드 추출
-    const keyword = extractKeyword(input.query);
+    const keyword = extractKeyword(trimmedQuery);
     const param = getQuickStatsParam(keyword);
 
     if (!param) {
@@ -121,30 +204,42 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
     let regionName = '전국';
     let objL1 = param.objL1;
     let requestedRegion: string | null = null;
+    let districtNote: string | null = null;
 
-    // 명시적 region 파라미터
+    // 명시적 region 파라미터 우선
     if (input.region) {
       requestedRegion = input.region;
     }
 
-    // 쿼리에서 지역명 추출
+    // 쿼리에서 자치구 → 광역시도 fallback
+    // (quickStats는 광역시도 단위까지 지원. 자치구는 fetch_kosis_excel 권장)
     if (!requestedRegion) {
-      for (const name of REGION_NAMES) {
-        if (input.query.includes(name)) {
-          requestedRegion = name;
-          break;
+      const districtName = extractDistrictName(trimmedQuery);
+      if (districtName) {
+        const prov = findProvinceByDistrict(districtName);
+        if (prov) {
+          requestedRegion = prov.shortName;
+          districtNote = `💡 "${districtName}" 자치구 데이터는 quick_stats가 지원하지 않아 ${prov.shortName} 광역시도 데이터로 표시했습니다. 자치구 단위는 fetch_kosis_excel("${districtName}", "${keyword}")로 조회하세요.`;
+        } else {
+          // DISTRICT_TO_PROVINCE에 없는 자치구 (모호하거나 미등록)
+          districtNote = `💡 "${districtName}"은(는) 자치구 매핑이 모호합니다 (여러 광역시도에 동명 자치구 존재 가능). 전국 데이터로 표시합니다. 정확한 자치구 조회는 search_statistics("${districtName} ${keyword}") 사용.`;
         }
+      }
+
+      // 자치구 없으면 광역시도 추출 (부분매칭 버그 방지)
+      if (!requestedRegion) {
+        const provName = extractProvinceName(trimmedQuery, /* districtDetected: */ false);
+        if (provName) requestedRegion = provName;
       }
     }
 
     // 지역 요청이 있는 경우 처리
     if (requestedRegion) {
       if (!param.regionCodes) {
-        // 지역별 데이터를 지원하지 않는 통계
         return {
           success: false,
-          answer: `"${input.query}"는 지역별 조회를 지원하지 않습니다. 전국 데이터만 제공됩니다.`,
-          note: `지역별 조회 가능: 인구, 출산율, 사망률, 혼인율, 이혼율, 실업률, 고용률 등`,
+          answer: `"${keyword}" 통계는 지역별 조회를 지원하지 않습니다. 전국 데이터만 제공됩니다.`,
+          note: `지역별 조회 가능: 인구, 출산율, 사망률, 혼인율, 이혼율, 실업률, 고용률, GRDP, 물가, 주택가격, 아파트가격, 전세가격, 미세먼지, 교통사고, 범죄율, 의사수, 자동차 등`,
         };
       }
       const regionCode = getRegionCode(param, requestedRegion);
@@ -251,8 +346,8 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
       description: param.description,
     });
 
-    // 출처 추가
-    const answer = `${baseAnswer}\n\n📊 출처: ${param.tableName} (KOSIS)`;
+    // 출처 + 자치구 안내 부착
+    const answer = `${baseAnswer}\n\n📊 출처: ${param.tableName} (KOSIS)${districtNote ? `\n\n${districtNote}` : ''}`;
 
     return {
       success: true,
@@ -265,10 +360,27 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
         tableId: param.tableId,
         tableName: param.tableName,
       },
+      ...(districtNote ? { note: districtNote } : {}),
     };
   } catch (error) {
     console.error('Quick stats error:', error);
     const errorMessage = error instanceof Error ? error.message : String(error);
+
+    // KOSIS "데이터가 존재하지 않습니다" → 친절한 안내
+    const isMissing = /데이터가 존재하지 않습니다/.test(errorMessage);
+    if (isMissing) {
+      const yearHint = input.year != null
+        ? (input.year > new Date().getFullYear()
+            ? `${input.year}년은 아직 발표되지 않았을 가능성이 큽니다. 연도 미지정 시 최신 데이터를 자동 조회합니다.`
+            : `${input.year}년 데이터가 해당 통계표에 없습니다. 가용 연도 범위를 좁혀 다시 시도해보세요.`)
+        : '해당 통계표에 데이터가 없습니다.';
+      return {
+        success: false,
+        answer: `"${input.query}" 데이터를 찾을 수 없습니다.`,
+        note: `${yearHint}\n다른 검색은 search_statistics("${input.query}") 사용.`,
+      };
+    }
+
     return {
       success: false,
       answer: `조회 중 오류가 발생했습니다: ${errorMessage}`,
@@ -279,23 +391,37 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
 
 /**
  * 쿼리에서 키워드 추출
+ *
+ * 매칭 우선순위:
+ *   1. 정식 키워드 직접 매칭 (긴 것 우선)
+ *   2. 별칭 매칭 (저출산→출산율 등, 긴 것 우선)
+ *   3. 공백 분리 후 단어별 직접/별칭 매칭
+ *   4. 원본 쿼리 그대로 반환
  */
 function extractKeyword(query: string): string {
-  // 매핑 키워드와 직접 매칭 (긴 키워드 우선)
+  // 1. 정식 키워드
   const sortedKeywords = Object.keys(QUICK_STATS_PARAMS).sort((a, b) => b.length - a.length);
-
   for (const keyword of sortedKeywords) {
     if (query.includes(keyword)) {
       return keyword;
     }
   }
 
-  // 공백으로 분리하여 매칭 시도
+  // 2. 별칭 (저출산, 고령화, population 등)
+  const sortedAliases = Object.keys(KEYWORD_ALIASES).sort((a, b) => b.length - a.length);
+  for (const alias of sortedAliases) {
+    if (query.includes(alias) || query.toLowerCase().includes(alias.toLowerCase())) {
+      return alias;
+    }
+  }
+
+  // 3. 공백 분리 매칭
   const words = query.split(/\s+/);
   for (const word of words) {
-    if (QUICK_STATS_PARAMS[word]) {
-      return word;
-    }
+    if (QUICK_STATS_PARAMS[word]) return word;
+    if (KEYWORD_ALIASES[word]) return word;
+    const lower = word.toLowerCase();
+    if (KEYWORD_ALIASES[lower]) return lower;
   }
 
   return query;
