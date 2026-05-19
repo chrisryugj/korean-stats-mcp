@@ -309,23 +309,30 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
             };
           }
 
-          // value 자동 추출 실패 — highlight markdown 첨부로 degrade
-          const highlightBlock =
-            highlightLines.length > 0
-              ? highlightLines.join('\n')
-              : excelResult.markdown.slice(0, 2500);
-          const subjectMd = periodLabel ? `${periodLabel} ${districtName}` : districtName;
-          const answer =
-            `${subjectMd} ${param.description} 통계연보를 조회했습니다 (자동 수치 추출 실패 → 원본 표 첨부).` +
-            `\n\n${highlightBlock}` +
-            `\n\n📊 출처: ${sourceName} (KOSIS ${tableId})`;
-          return {
-            success: true,
-            answer,
-            period: periodLabel || undefined,
-            source: { orgId: excelResult.orgId, tableId, tableName: sourceName },
-            note: `자동 value 추출 실패 — highlight pattern 보강 필요 (keyword="${keyword}").`,
-          };
+          // value 자동 추출 실패. DISTRICT_OPENAPI_ROUTES 매핑이 있으면 2.6 OpenAPI 라우팅으로 fall-through.
+          if (DISTRICT_OPENAPI_ROUTES[keyword]) {
+            districtNote =
+              `💡 ${districtName} 통계연보(.xlsx)에서 "${keyword}" 자동 추출 실패 → OpenAPI 라우팅으로 대체 조회.`;
+            // (return 없음 — try 블록 끝나면 2.6 분기로 자연 진행)
+          } else {
+            // 매핑 없으면 highlight markdown 첨부로 degrade (기존 흐름)
+            const highlightBlock =
+              highlightLines.length > 0
+                ? highlightLines.join('\n')
+                : excelResult.markdown.slice(0, 2500);
+            const subjectMd = periodLabel ? `${periodLabel} ${districtName}` : districtName;
+            const answer =
+              `${subjectMd} ${param.description} 통계연보를 조회했습니다 (자동 수치 추출 실패 → 원본 표 첨부).` +
+              `\n\n${highlightBlock}` +
+              `\n\n📊 출처: ${sourceName} (KOSIS ${tableId})`;
+            return {
+              success: true,
+              answer,
+              period: periodLabel || undefined,
+              source: { orgId: excelResult.orgId, tableId, tableName: sourceName },
+              note: `자동 value 추출 실패 — highlight pattern 보강 필요 (keyword="${keyword}").`,
+            };
+          }
         }
 
         // fetchKosisExcel 실패 — 광역 fallback으로 degrade. note에 사유 명시.
@@ -385,11 +392,18 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
             }
           }
 
+          // 자치구 코드 objLevel 결정 — 기본 objL1, INH_1B80A18 같은 swap 케이스는 objL2.
+          const objL1Final =
+            route.districtObjLevel === 2 ? (route.extraObjL1 ?? '0') : districtCode;
+          const objL2Final =
+            route.districtObjLevel === 2 ? districtCode : route.objL2;
+
           const rows = await cache.getStatisticsData(
             {
               orgId: route.orgId,
               tableId: route.tblId,
-              objL1: districtCode,
+              objL1: objL1Final,
+              objL2: objL2Final,
               itemId: route.itmId,
               periodType: route.prdSe,
               recentCount: startPrd ? undefined : 1,
@@ -401,7 +415,8 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
               return client.getStatisticsData({
                 orgId: route.orgId,
                 tblId: route.tblId,
-                objL1: districtCode,
+                objL1: objL1Final,
+                ...(objL2Final ? { objL2: objL2Final } : {}),
                 itmId: route.itmId,
                 prdSe: route.prdSe,
                 newEstPrdCnt: startPrd ? undefined : 1,
@@ -413,29 +428,34 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
           if (rows.length > 0) {
             const r = rows[0];
             const rawValue = r.DT;
-            const period = r.PRD_DE;
-            const periodLabel = formatPeriodWithType(period, route.prdSe);
-            const numValue = parseFloat(rawValue);
-            const formattedValue = Number.isNaN(numValue)
-              ? rawValue
-              : numValue.toLocaleString('ko-KR');
-            const suffix = getKoreanParticle(route.description);
-            const answer =
-              `${periodLabel} ${districtName}의 ${route.description}${suffix} ${formattedValue}${route.unit}입니다.` +
-              `\n\n📊 출처: ${route.description} (KOSIS ${route.tblId})`;
-            return {
-              success: true,
-              answer,
-              value: formattedValue,
-              unit: route.unit,
-              period: periodLabel,
-              source: {
-                orgId: route.orgId,
-                tableId: route.tblId,
-                tableName: route.description,
-              },
-              ...(route.isProjection ? { isProjection: true } : {}),
-            };
+            // KOSIS 데이터 누락 표시("-"/공백) — fall-through 하여 광역 fallback으로 degrade
+            if (rawValue && rawValue !== '-' && rawValue.trim() !== '') {
+              const period = r.PRD_DE;
+              const periodLabel = formatPeriodWithType(period, route.prdSe);
+              const numValue = parseFloat(rawValue);
+              const formattedValue = Number.isNaN(numValue)
+                ? rawValue
+                : numValue.toLocaleString('ko-KR');
+              const suffix = getKoreanParticle(route.description);
+              const answer =
+                `${periodLabel} ${districtName}의 ${route.description}${suffix} ${formattedValue}${route.unit}입니다.` +
+                `\n\n📊 출처: ${route.description} (KOSIS ${route.tblId})`;
+              return {
+                success: true,
+                answer,
+                value: formattedValue,
+                unit: route.unit,
+                period: periodLabel,
+                source: {
+                  orgId: route.orgId,
+                  tableId: route.tblId,
+                  tableName: route.description,
+                },
+                ...(route.isProjection ? { isProjection: true } : {}),
+              };
+            }
+            districtNote =
+              `💡 ${districtName} ${route.description} KOSIS 자치구 단위 데이터 미수록 — 광역시도 데이터로 대체합니다.`;
           }
         }
       } catch {

@@ -33,8 +33,18 @@ export interface DistrictOpenApiRoute {
   description: string;
   /** 단위 (예: '명', '%') — 응답에서 자동 부착 */
   unit: string;
-  /** 자치구 객체 OBJ_ID (KOSIS 테이블마다 다름: 'A'/'SGG'/'region'/'C1' 등). 'auto'면 후보 순회 */
+  /** 자치구 객체 OBJ_ID (KOSIS 테이블마다 다름: 'A'/'SGG'/'region'/'C1'/'S' 등). 'auto'면 후보 순회 */
   objId?: string;
+  /** 보조 분류 코드 (예: DT_1ES3A03_A01S 연령 YRE — '000'=계, '060'=15-64세) */
+  objL2?: string;
+  /**
+   * 자치구 코드가 들어가는 objLevel. 기본 1 — objL1=districtCode.
+   * 일부 KOSIS 테이블(예: INH_1B80A18 사망률 — OBJ_ID 순서 SBB/S)은 자치구가 objL2.
+   * 2로 지정하면 objL1=extraObjL1(고정값), objL2=districtCode.
+   */
+  districtObjLevel?: 1 | 2;
+  /** districtObjLevel=2일 때 objL1에 들어가는 고정값 (예: SBB=계=='0'). */
+  extraObjL1?: string;
   /** 통계청 장래추계 데이터 — 미래연도 실측 아닌 추계 안내 */
   isProjection?: boolean;
 }
@@ -75,6 +85,38 @@ export const DISTRICT_OPENAPI_ROUTES: Record<string, DistrictOpenApiRoute> = {
   '전세가격지수': { orgId: '101', tblId: 'DT_1YL13601E', itmId: 'sales', prdSe: 'M', objId: 'region', description: '주택전세가격지수', unit: '' },
   '주택전세': { orgId: '101', tblId: 'DT_1YL13601E', itmId: 'sales', prdSe: 'M', objId: 'region', description: '주택전세가격지수', unit: '' },
   '전세': { orgId: '101', tblId: 'DT_1YL13601E', itmId: 'sales', prdSe: 'M', objId: 'region', description: '주택전세가격지수', unit: '' },
+
+  // ── 고용 (DT_1ES3A03_A01S 시군구/연령별 취업자 및 고용률) ─ OBJ_ID=A, objL2=YRE(연령) ──
+  // ITEM: T00=취업자(천명), T12=고용률(%). objL2='000'=전체 연령(계).
+  // ITM_NM 패턴 — 광역시 자치구: "서울 광진구"(결합), 도 시군: "수원시"(단일). UP_ITM_ID 비어있음 — 결합/단일 fallback 필요.
+  '고용률':    { orgId: '101', tblId: 'DT_1ES3A03_A01S', itmId: 'T12', prdSe: 'Y', objId: 'A', objL2: '000', description: '고용률', unit: '%' },
+  '취업자수':  { orgId: '101', tblId: 'DT_1ES3A03_A01S', itmId: 'T00', prdSe: 'Y', objId: 'A', objL2: '000', description: '취업자', unit: '천명' },
+  '취업자':    { orgId: '101', tblId: 'DT_1ES3A03_A01S', itmId: 'T00', prdSe: 'Y', objId: 'A', objL2: '000', description: '취업자', unit: '천명' },
+
+  // ── 실업 (DT_1ES3A01S 시군구 경제활동인구 총괄) ─ OBJ_ID=A, ITM_NM 패턴 동일 ──
+  // ITEM: T3=취업자, T4=실업자, T7=고용률, T8=실업률(%). 자치구 4자리 코드.
+  '실업률':    { orgId: '101', tblId: 'DT_1ES3A01S', itmId: 'T8', prdSe: 'Y', objId: 'A', description: '실업률', unit: '%' },
+  '실업자수':  { orgId: '101', tblId: 'DT_1ES3A01S', itmId: 'T4', prdSe: 'Y', objId: 'A', description: '실업자', unit: '천명' },
+  '실업자':    { orgId: '101', tblId: 'DT_1ES3A01S', itmId: 'T4', prdSe: 'Y', objId: 'A', description: '실업자', unit: '천명' },
+  '경제활동인구': { orgId: '101', tblId: 'DT_1ES3A01S', itmId: 'T2', prdSe: 'Y', objId: 'A', description: '경제활동인구', unit: '천명' },
+  '비경제활동인구': { orgId: '101', tblId: 'DT_1ES3A01S', itmId: 'T5', prdSe: 'Y', objId: 'A', description: '비경제활동인구', unit: '천명' },
+
+  // ── 인구동태 시군구 (INH_* 인디케이터 테이블 — 자치구 단위 연간 데이터) ──
+  // 주의: DT_1B8000I 메타에는 자치구 행이 있으나 KOSIS API 실 데이터 0건(전국/광역/자치구 모두 미제공) → 사용 불가.
+  // 대신 INH_1B82A01(사망자수)/INH_1B83A35(혼인건수)/INH_1B85033(이혼건수)/INH_1B8000I_01(조이혼율)/INH_1B8000I_02(조혼인율) 사용.
+  '사망자수':  { orgId: '101', tblId: 'INH_1B82A01', itmId: 'T1', objL2: '0', prdSe: 'Y', objId: 'A', description: '사망자수', unit: '명' },
+  '사망자':    { orgId: '101', tblId: 'INH_1B82A01', itmId: 'T1', objL2: '0', prdSe: 'Y', objId: 'A', description: '사망자수', unit: '명' },
+  '혼인건수':  { orgId: '101', tblId: 'INH_1B83A35', itmId: 'T3', prdSe: 'Y', objId: 'A', description: '혼인건수', unit: '건' },
+  '이혼건수':  { orgId: '101', tblId: 'INH_1B85033', itmId: 'T4', prdSe: 'Y', objId: 'A', description: '이혼건수', unit: '건' },
+  '혼인율':    { orgId: '101', tblId: 'INH_1B8000I_02', itmId: 'T41', prdSe: 'Y', objId: 'A', description: '조혼인율', unit: '천명당' },
+  '조혼인율':  { orgId: '101', tblId: 'INH_1B8000I_02', itmId: 'T41', prdSe: 'Y', objId: 'A', description: '조혼인율', unit: '천명당' },
+  '이혼율':    { orgId: '101', tblId: 'INH_1B8000I_01', itmId: 'T51', prdSe: 'Y', objId: 'A', description: '조이혼율', unit: '천명당' },
+  '조이혼율':  { orgId: '101', tblId: 'INH_1B8000I_01', itmId: 'T51', prdSe: 'Y', objId: 'A', description: '조이혼율', unit: '천명당' },
+
+  // ── 사망률 (INH_1B80A18) ─ OBJ 순서 SBB→S, 자치구가 objL2 ──
+  // KOSIS 단위 '십만명당' (인구 10만명당 사망자수). 천명당 변환 X — 원본 그대로 응답.
+  '사망률':    { orgId: '101', tblId: 'INH_1B80A18', itmId: 'T4', prdSe: 'Y', objId: 'S', districtObjLevel: 2, extraObjL1: '0', description: '사망률', unit: '십만명당' },
+  '조사망률':  { orgId: '101', tblId: 'INH_1B80A18', itmId: 'T4', prdSe: 'Y', objId: 'S', districtObjLevel: 2, extraObjL1: '0', description: '사망률', unit: '십만명당' },
 };
 
 export const DISTRICT_KEYWORD_TO_FILESN: Record<string, number> = {

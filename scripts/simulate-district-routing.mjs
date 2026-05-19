@@ -71,9 +71,33 @@ const CASES = [
   { id: 'songpa-jeonse',   q: { query: '송파구 전세가격' },                      expect: 'precise',  tier: 'pdf-routed' },
   { id: 'gangnam-doctor',  q: { query: '강남구 의사수' },                        expect: 'precise',  tier: 'pdf-routed' },
 
-  // ── 4b. 시군구 고용 통계 KOSIS 코드 체계 분석 미완 — 광역 fallback (다음 세션) ──
-  { id: 'gangnam-employ',  q: { query: '강남구 고용률' },                        expect: 'fallback', tier: 'pending-employ' },
-  { id: 'mapo-unemploy',   q: { query: '마포구 실업률' },                        expect: 'fallback', tier: 'pending-employ' },
+  // ── 4b. 시군구 고용·실업 (DT_1ES3A03_A01S 고용률/취업자, DT_1ES3A01S 실업률) — precise ──
+  { id: 'gangnam-employ',     q: { query: '강남구 고용률' },                     expect: 'precise', tier: 'employ-routed' },
+  { id: 'gwangjin-employ-r',  q: { query: '광진구 고용률' },                     expect: 'precise', tier: 'employ-routed' },
+  { id: 'mapo-unemploy',      q: { query: '마포구 실업률' },                     expect: 'precise', tier: 'employ-routed' },
+  { id: 'gangnam-unemploy',   q: { query: '강남구 실업률' },                     expect: 'precise', tier: 'employ-routed' },
+  { id: 'haeundae-employ',    q: { query: '해운대구 고용률' },                   expect: 'precise', tier: 'employ-routed' },
+  { id: 'suwon-employ',       q: { query: '수원시 고용률' },                     expect: 'precise', tier: 'employ-routed' },
+  { id: 'pohang-employ',      q: { query: '포항시 고용률' },                     expect: 'precise', tier: 'employ-routed' },
+  { id: 'cheongju-employ',    q: { query: '청주시 고용률' },                     expect: 'precise', tier: 'employ-routed' },
+  { id: 'gangnam-jobs',       q: { query: '강남구 취업자수' },                   expect: 'precise', tier: 'employ-routed' },
+  { id: 'suwon-jobs',         q: { query: '수원시 취업자' },                     expect: 'precise', tier: 'employ-routed' },
+
+  // ── 4c. 인구동태 시군구 (INH_1B82A01 사망자수, INH_1B83A35 혼인, INH_1B85033 이혼,
+  //                       INH_1B8000I_01 조이혼율, INH_1B8000I_02 조혼인율, INH_1B80A18 사망률) ──
+  { id: 'gangnam-death-rate', q: { query: '강남구 사망률' },                     expect: 'precise', tier: 'vital-routed' },
+  { id: 'gwangjin-death-rate',q: { query: '광진구 사망률' },                     expect: 'precise', tier: 'vital-routed' },
+  { id: 'haeundae-death-rate',q: { query: '해운대구 사망률' },                   expect: 'precise', tier: 'vital-routed' },
+  { id: 'gangnam-deaths',     q: { query: '강남구 사망자수' },                   expect: 'precise', tier: 'vital-routed' },
+  { id: 'suwon-deaths',       q: { query: '수원시 사망자수' },                   expect: 'precise', tier: 'vital-routed' },
+  { id: 'gangnam-marriage',   q: { query: '강남구 혼인율' },                     expect: 'precise', tier: 'vital-routed' },
+  { id: 'gwangjin-marriage-r',q: { query: '광진구 혼인율' },                     expect: 'precise', tier: 'vital-routed' },
+  { id: 'suwon-marriages',    q: { query: '수원시 혼인건수' },                   expect: 'precise', tier: 'vital-routed' },
+  { id: 'mapo-marriages',     q: { query: '마포구 혼인건수' },                   expect: 'precise', tier: 'vital-routed' },
+  { id: 'gangnam-divorce',    q: { query: '강남구 이혼율' },                     expect: 'precise', tier: 'vital-routed' },
+  { id: 'gwangjin-divorce-r', q: { query: '광진구 이혼율' },                     expect: 'precise', tier: 'vital-routed' },
+  { id: 'haeundae-divorce',   q: { query: '해운대구 이혼율' },                   expect: 'precise', tier: 'vital-routed' },
+  { id: 'gangnam-divorces',   q: { query: '강남구 이혼건수' },                   expect: 'precise', tier: 'vital-routed' },
 
   // ── 5. 동명 자치구 disambiguate (광역시도 힌트로 정확 라우팅) ────────────────
   { id: 'ambig-nam-busan',  q: { query: '부산 남구 인구' },                      expect: 'precise', tier: 'ambiguous' },
@@ -92,6 +116,52 @@ const CASES = [
   // ── 8. 회귀 — 광역시도 단독 ─────────────────────────────────────────────
   { id: 'reg-seoul-pop',  q: { query: '서울 인구' },                             expect: 'province', tier: 'regression' },
   { id: 'reg-busan-grdp', q: { query: '부산 GRDP' },                             expect: 'province', tier: 'regression' },
+
+  // ── 9. 광범위 자치구 인구 커버리지 (광역시·도 추가) ───────────────────────
+  { id: 'busan-saha-pop',      q: { query: '사하구 인구' },                      expect: 'precise', tier: 'broad-pop' },
+  { id: 'busan-keumjeong-pop', q: { query: '금정구 인구' },                      expect: 'precise', tier: 'broad-pop' },
+  { id: 'daegu-dalseo-pop',    q: { query: '달서구 인구' },                      expect: 'precise', tier: 'broad-pop' },
+  { id: 'daegu-dalseong-pop',  q: { query: '달성군 인구' },                      expect: 'precise', tier: 'broad-pop' },
+  { id: 'incheon-bupyeong-pop',q: { query: '부평구 인구' },                      expect: 'precise', tier: 'broad-pop' },
+  { id: 'incheon-gyeyang-pop', q: { query: '계양구 인구' },                      expect: 'precise', tier: 'broad-pop' },
+  { id: 'daejeon-daedeok-pop', q: { query: '대덕구 인구' },                      expect: 'precise', tier: 'broad-pop' },
+  { id: 'gyeonggi-uiwang-pop', q: { query: '의왕시 인구' },                      expect: 'precise', tier: 'broad-pop' },
+  { id: 'gangwon-wonju-pop',   q: { query: '원주시 인구' },                      expect: 'precise', tier: 'broad-pop' },
+  { id: 'gangwon-gangneung-pop',q: { query: '강릉시 인구' },                     expect: 'precise', tier: 'broad-pop' },
+  { id: 'jeonnam-yeosu-pop',   q: { query: '여수시 인구' },                      expect: 'precise', tier: 'broad-pop' },
+  { id: 'gyeongbuk-gumi-pop',  q: { query: '구미시 인구' },                      expect: 'precise', tier: 'broad-pop' },
+  { id: 'gyeongbuk-gyeongju-pop',q:{ query: '경주시 인구' },                     expect: 'precise', tier: 'broad-pop' },
+  { id: 'gyeongnam-tongyeong-pop',q:{query: '통영시 인구' },                     expect: 'precise', tier: 'broad-pop' },
+  { id: 'jeju-seogwipo-pop',   q: { query: '서귀포시 인구' },                    expect: 'precise', tier: 'broad-pop' },
+
+  // ── 10. 광범위 고용률 — 다양 자치구 ──────────────────────────────────────
+  { id: 'busan-jin-emp',       q: { query: '부산진구 고용률' },                  expect: 'precise', tier: 'broad-employ' },
+  { id: 'daegu-suseong-emp',   q: { query: '수성구 고용률' },                    expect: 'precise', tier: 'broad-employ' },
+  { id: 'incheon-yeonsu-emp',  q: { query: '연수구 고용률' },                    expect: 'precise', tier: 'broad-employ' },
+  { id: 'gwangju-gwangsan-emp',q: { query: '광산구 고용률' },                    expect: 'precise', tier: 'broad-employ' },
+  { id: 'gyeonggi-changwon-emp',q:{ query: '창원시 고용률' },                    expect: 'precise', tier: 'broad-employ' },
+
+  // ── 11. 광범위 사망률/혼인율/이혼율 ──────────────────────────────────────
+  { id: 'busan-jin-death',     q: { query: '부산진구 사망률' },                  expect: 'precise', tier: 'broad-vital' },
+  { id: 'daegu-suseong-death', q: { query: '수성구 사망률' },                    expect: 'precise', tier: 'broad-vital' },
+  { id: 'incheon-yeonsu-mar',  q: { query: '연수구 혼인율' },                    expect: 'precise', tier: 'broad-vital' },
+  { id: 'suwon-marriage-rate', q: { query: '수원시 혼인율' },                    expect: 'precise', tier: 'broad-vital' },
+  { id: 'wonju-marriage-rate', q: { query: '원주시 혼인율' },                    expect: 'precise', tier: 'broad-vital' },
+  // 청주시 이혼율 — KOSIS INH_1B8000I_01 자치구 데이터 전 연도 결측("-") → 광역 fallback (정상)
+  { id: 'cheongju-divorce',    q: { query: '청주시 이혼율' },                    expect: 'fallback', tier: 'broad-vital' },
+  { id: 'gangwon-chuncheon-death',q:{query: '춘천시 사망률' },                   expect: 'precise', tier: 'broad-vital' },
+  { id: 'pohang-deaths',       q: { query: '포항시 사망자수' },                  expect: 'precise', tier: 'broad-vital' },
+
+  // ── 12. 광범위 실업률 ─────────────────────────────────────────────────
+  { id: 'songpa-unemp',        q: { query: '송파구 실업률' },                    expect: 'precise', tier: 'broad-unemp' },
+  { id: 'seocho-unemp',        q: { query: '서초구 실업률' },                    expect: 'precise', tier: 'broad-unemp' },
+  { id: 'busan-jin-unemp',     q: { query: '부산진구 실업률' },                  expect: 'precise', tier: 'broad-unemp' },
+  { id: 'incheon-yeonsu-unemp',q: { query: '연수구 실업률' },                    expect: 'precise', tier: 'broad-unemp' },
+
+  // ── 13. 동명 시군 disambiguate 불가 (강원·경남 고성군 — DT_1ES3A03_A01S 메타가
+  //        둘 다 "고성군" 단일형으로 등록 → 광역시도 정보 부재) → 광역 fallback (정상) ──
+  { id: 'goseong-employ',      q: { query: '고성군 고용률' },                    expect: 'fallback', tier: 'ambiguous-routed' },
+  { id: 'goseong-death',       q: { query: '고성군 사망률' },                    expect: 'fallback', tier: 'ambiguous-routed' },
 ];
 
 function classify(result, c) {
@@ -107,6 +177,9 @@ function classify(result, c) {
 
   // 자치구 매핑 모호 안내 = fallback
   if (note.includes('자치구 매핑이 모호') || note.includes('자치구 데이터는 quick_stats가 지원')) return 'fallback';
+
+  // KOSIS 자치구 단위 데이터 미수록 → 광역 fallback
+  if (note.includes('데이터 미수록') || note.includes('광역시도 데이터로 대체')) return 'fallback';
 
   // 회귀 case (자치구 없는 광역 단독)
   const isDistrictQuery = c.tier && c.tier !== 'regression';
