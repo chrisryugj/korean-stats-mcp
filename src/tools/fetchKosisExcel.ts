@@ -29,6 +29,31 @@ import { resolveDistrictFileTable } from '../utils/regions.js';
 const KOSIS_HOST = 'https://stat.kosis.kr';
 const KOSIS_BASE = `${KOSIS_HOST}/nsibsHtmlSvc/fileView/FileStbl`;
 
+/**
+ * KOSIS stat.kosis.kr 콜드 호출 안정화 wrapper
+ *
+ * Fly Singapore → KOSIS Korea 콜드 path에서 첫 호출이 timeout/ECONNRESET 으로 자주 실패한다.
+ * KOSIS는 멱등 GET·세션 쿠키 기반 POST라 재시도 안전 (POST 부작용 없음 — 다운로드만).
+ *
+ * - timeout: 15s (Singapore→Seoul cold path 여유)
+ * - attempts: 3 (지수 백오프 800ms / 1600ms — 추가 대기 상한 ~2.4s)
+ */
+async function fetchWithRetry(url: string, init: RequestInit, attempts = 3): Promise<Response> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fetch(url, {
+        ...init,
+        signal: AbortSignal.timeout(15000),
+      });
+    } catch (e) {
+      lastErr = e;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, 800 * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
+
 export const fetchKosisExcelSchema = {
   name: 'fetch_kosis_excel',
   description: `[엑셀파싱] KOSIS 사이트의 파일 통계표(엑셀로만 제공)를 다운로드 + 파싱한 마크다운 반환. quick_stats / quick_trend가 광역시도까지만 지원하므로 자치구별 정밀 데이터는 이 도구로.
@@ -116,7 +141,7 @@ function extractCookies(res: Response): string {
 /** 1단계: 파일 통계표 페이지 GET → 쿠키 + HTML */
 async function fetchTableView(orgId: string, tblId: string): Promise<{ cookie: string; html: string }> {
   const url = `${KOSIS_BASE}/fileStblView.do?in_org_id=${encodeURIComponent(orgId)}&in_tbl_id=${encodeURIComponent(tblId)}`;
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 korea-stats-mcp',
       'Accept': 'text/html',
@@ -198,7 +223,7 @@ async function fetchDownloadInfo(
     file_sn: String(fileSn),
     conn_path: '',
   });
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     method: 'POST',
     headers: {
       'User-Agent': 'Mozilla/5.0 korea-stats-mcp',
@@ -245,7 +270,7 @@ async function downloadFile(
     file_path: info.dwldFilePath,
     file_name: info.dwldFileNm,
   });
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     method: 'POST',
     headers: {
       'User-Agent': 'Mozilla/5.0 korea-stats-mcp',

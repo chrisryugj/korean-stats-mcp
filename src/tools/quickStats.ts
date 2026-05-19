@@ -17,6 +17,13 @@ import {
   normalizeKeywordKey,
 } from '../data/quickStatsParams.js';
 import { findProvinceByDistrict, PROVINCES, AMBIGUOUS_DISTRICTS } from '../utils/regions.js';
+import { fetchKosisExcel } from './fetchKosisExcel.js';
+import {
+  DISTRICT_KEYWORD_TO_FILESN,
+  DISTRICT_OPENAPI_ROUTES,
+  extractDistrictHighlight,
+} from '../data/districtFileMap.js';
+import { getDistrictKscdCodeFor } from '../utils/districtKosisCodes.js';
 
 /**
  * 자치구로 오판하면 안 되는 키워드 집합
@@ -247,6 +254,193 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
     } else if (provFromQuery) {
       // query에서 광역시도만 추출
       requestedRegion = provFromQuery;
+    }
+
+    // 2.5. 자치구 정밀 조회 (KOSIS 자치구 통계연보 .xlsx) — 자치구 + 매핑된 키워드 일 때 우선 시도
+    //
+    // 매핑이 있고 fetchKosisExcel이 성공하면 광역 OpenAPI 호출 없이 자치구 정밀값으로 즉시 응답.
+    // 실패 시 districtNote에 사유 부착 후 광역 fallback으로 degrade (기존 흐름 유지).
+    //
+    // 안정성: P0-1로 fetchKosisExcel 3개 fetch에 retry/timeout 적용 (cold path 안전).
+    if (districtName && DISTRICT_KEYWORD_TO_FILESN[keyword] !== undefined) {
+      const fileSn = DISTRICT_KEYWORD_TO_FILESN[keyword];
+      try {
+        const excelResult = await fetchKosisExcel({
+          districtName,
+          fileSn,
+          year: input.year,
+          listOnly: false,
+        });
+
+        if (excelResult.success && excelResult.markdown) {
+          const yearMatch = excelResult.tblId.match(/FILE(\d{4})/);
+          const yearLabel = yearMatch?.[1] ?? (input.year ? String(input.year) : '');
+          const fileLabel = excelResult.fileName ?? `file_sn=${fileSn}`;
+          const sourceName = `${districtName} 통계연보 ${fileLabel}`;
+          const tableId = excelResult.tblId;
+          const periodLabel = yearLabel ? `${yearLabel}년` : '';
+
+          const { value, unit, highlightLines } = extractDistrictHighlight(
+            excelResult.markdown,
+            keyword
+          );
+
+          if (value) {
+            const unitLabel = (unit ?? param.unit ?? '').trim();
+            const formattedValue = value.includes(',')
+              ? value
+              : !Number.isNaN(parseFloat(value))
+                ? parseFloat(value).toLocaleString('ko-KR')
+                : value;
+            const suffix = getKoreanParticle(param.description);
+            const subject = periodLabel
+              ? `${periodLabel} ${districtName}의`
+              : `${districtName}의`;
+            const answer =
+              `${subject} ${param.description}${suffix} ${formattedValue}${unitLabel ? unitLabel : ''}입니다.` +
+              `\n\n📊 출처: ${sourceName} (KOSIS ${tableId})`;
+            return {
+              success: true,
+              answer,
+              value,
+              unit: unitLabel,
+              period: periodLabel || undefined,
+              source: { orgId: excelResult.orgId, tableId, tableName: sourceName },
+            };
+          }
+
+          // value 자동 추출 실패 — highlight markdown 첨부로 degrade
+          const highlightBlock =
+            highlightLines.length > 0
+              ? highlightLines.join('\n')
+              : excelResult.markdown.slice(0, 2500);
+          const subjectMd = periodLabel ? `${periodLabel} ${districtName}` : districtName;
+          const answer =
+            `${subjectMd} ${param.description} 통계연보를 조회했습니다 (자동 수치 추출 실패 → 원본 표 첨부).` +
+            `\n\n${highlightBlock}` +
+            `\n\n📊 출처: ${sourceName} (KOSIS ${tableId})`;
+          return {
+            success: true,
+            answer,
+            period: periodLabel || undefined,
+            source: { orgId: excelResult.orgId, tableId, tableName: sourceName },
+            note: `자동 value 추출 실패 — highlight pattern 보강 필요 (keyword="${keyword}").`,
+          };
+        }
+
+        // fetchKosisExcel 실패 — 광역 fallback으로 degrade. note에 사유 명시.
+        const reason = excelResult.error ? excelResult.error.slice(0, 200) : '알 수 없는 사유';
+        districtNote =
+          `⚠️ "${districtName}" 자치구 통계연보(.xlsx) 조회 실패: ${reason}` +
+          (requestedRegion ? ` → ${requestedRegion} 광역시도 데이터로 대체합니다.` : '');
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        districtNote =
+          `⚠️ "${districtName}" 자치구 통계연보 조회 예외: ${msg.slice(0, 150)}` +
+          (requestedRegion ? ` → ${requestedRegion} 광역시도 데이터로 대체합니다.` : '');
+      }
+    }
+
+    // 2.6. 자치구 OpenAPI 라우팅 (DISTRICT_OPENAPI_ROUTES 기반)
+    //
+    // 위 2.5에서 fetchKosisExcel이 실패했거나(.xlsx 미제공·PDF 형식 자치구),
+    // 또는 fileSn 매핑이 없어도 KOSIS 표준 OpenAPI + 자치구 행정코드(KSCD)로
+    // 자치구 단위 정밀 조회. 강남구(PDF), 해운대구(미제공), 수원시(시군구) 등 cover.
+    //
+    // 키워드별 (orgId, tblId, itmId, prdSe) 매핑은 districtFileMap.DISTRICT_OPENAPI_ROUTES.
+    // objL1(자치구 코드)는 테이블별로 다를 수 있어 (orgId, tblId)별 메타 캐시.
+    const route = DISTRICT_OPENAPI_ROUTES[keyword];
+    if (districtName && route) {
+      try {
+        // 동명 자치구 보정 — query 광역시도 힌트
+        let provHint = findProvinceByDistrict(districtName) ?? undefined;
+        if (provFromQuery && AMBIGUOUS_DISTRICTS[districtName]?.includes(provFromQuery)) {
+          const cand = PROVINCES.find((p) => p.shortName === provFromQuery);
+          if (cand) provHint = cand;
+        }
+
+        const districtCode = await getDistrictKscdCodeFor(
+          route.orgId,
+          route.tblId,
+          districtName,
+          provHint,
+          route.objId ?? 'auto'
+        );
+        if (districtCode) {
+          // 사용자 지정 year 처리
+          let startPrd: string | undefined;
+          let endPrd: string | undefined;
+          if (input.year) {
+            if (route.prdSe === 'Y') {
+              startPrd = String(input.year);
+              endPrd = String(input.year);
+            } else if (route.prdSe === 'M' && input.month) {
+              const m = `${input.year}${String(input.month).padStart(2, '0')}`;
+              startPrd = m;
+              endPrd = m;
+            } else if (route.prdSe === 'Q' && input.quarter) {
+              const q = `${input.year}${String(input.quarter).padStart(2, '0')}`;
+              startPrd = q;
+              endPrd = q;
+            }
+          }
+
+          const rows = await cache.getStatisticsData(
+            {
+              orgId: route.orgId,
+              tableId: route.tblId,
+              objL1: districtCode,
+              itemId: route.itmId,
+              periodType: route.prdSe,
+              recentCount: startPrd ? undefined : 1,
+              year: input.year,
+              month: input.month,
+              quarter: input.quarter,
+            },
+            async () => {
+              return client.getStatisticsData({
+                orgId: route.orgId,
+                tblId: route.tblId,
+                objL1: districtCode,
+                itmId: route.itmId,
+                prdSe: route.prdSe,
+                newEstPrdCnt: startPrd ? undefined : 1,
+                startPrdDe: startPrd,
+                endPrdDe: endPrd,
+              });
+            }
+          );
+          if (rows.length > 0) {
+            const r = rows[0];
+            const rawValue = r.DT;
+            const period = r.PRD_DE;
+            const periodLabel = formatPeriodWithType(period, route.prdSe);
+            const numValue = parseFloat(rawValue);
+            const formattedValue = Number.isNaN(numValue)
+              ? rawValue
+              : numValue.toLocaleString('ko-KR');
+            const suffix = getKoreanParticle(route.description);
+            const answer =
+              `${periodLabel} ${districtName}의 ${route.description}${suffix} ${formattedValue}${route.unit}입니다.` +
+              `\n\n📊 출처: ${route.description} (KOSIS ${route.tblId})`;
+            return {
+              success: true,
+              answer,
+              value: formattedValue,
+              unit: route.unit,
+              period: periodLabel,
+              source: {
+                orgId: route.orgId,
+                tableId: route.tblId,
+                tableName: route.description,
+              },
+              ...(route.isProjection ? { isProjection: true } : {}),
+            };
+          }
+        }
+      } catch {
+        // OpenAPI 라우팅 실패 — 광역 fallback으로 degrade
+      }
     }
 
     // 지역 요청이 있는 경우 처리

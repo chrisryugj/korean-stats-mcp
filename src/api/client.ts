@@ -36,13 +36,17 @@ export class KosisClient {
   }
 
   /**
-   * API 요청 실행
+   * API 요청 실행 (timeout 15s + 3회 재시도 + 지수 백오프)
+   *
+   * - Fly Singapore → KOSIS Korea cold path 일시 abort 대응
+   * - KOSIS 응답 에러(err/errMsg 필드)는 영구 실패 → 즉시 throw, retry 안 함
+   * - HTTP 4xx도 영구 실패 → 즉시 throw
+   * - 네트워크 오류·타임아웃·5xx만 retry (800ms / 1600ms 백오프)
    */
   private async request<T>(
     endpoint: string,
     params: Record<string, string | number | undefined>
   ): Promise<T[]> {
-    // undefined 값 제거 및 문자열 변환
     const cleanParams: Record<string, string> = {};
     for (const [key, value] of Object.entries(params)) {
       if (value !== undefined) {
@@ -55,60 +59,74 @@ export class KosisClient {
 
     const url = new URL(this.baseUrl + endpoint);
     url.search = new URLSearchParams(cleanParams).toString();
+    const requestUrl = url.toString();
 
-    // 8초 타임아웃 (Vercel maxDuration 15초 내에 여유 확보)
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const TIMEOUT_MS = 15000;
+    const MAX_ATTEMPTS = 3;
 
-    try {
-      const response = await fetch(url.toString(), {
-        signal: controller.signal,
-      });
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      let isRetryable = false;
+      try {
+        const response = await fetch(requestUrl, {
+          signal: controller.signal,
+        });
 
-      if (!response.ok) {
-        throw new KosisApiError(
-          'HTTP_ERROR',
-          `HTTP ${response.status}: ${response.statusText}`
-        );
-      }
-
-      const data = await response.json() as Record<string, unknown>;
-
-      // 에러 응답 처리
-      if (data.err || data.errMsg) {
-        throw new KosisApiError(
-          (data.err as string) || 'API_ERROR',
-          (data.errMsg as string) || '알 수 없는 API 오류'
-        );
-      }
-
-      // 결과가 배열이 아닌 경우 빈 배열 반환
-      if (!Array.isArray(data)) {
-        if (data.result && Array.isArray(data.result)) {
-          return data.result as T[];
+        if (!response.ok) {
+          // 5xx는 일시적 — retry, 4xx는 영구 실패
+          isRetryable = response.status >= 500;
+          throw new KosisApiError(
+            'HTTP_ERROR',
+            `HTTP ${response.status}: ${response.statusText}`
+          );
         }
-        return [];
-      }
 
-      return data as T[];
-    } catch (error) {
-      if (error instanceof KosisApiError) {
-        throw error;
+        const data = (await response.json()) as Record<string, unknown>;
+
+        // KOSIS 응답 에러 — 영구 실패
+        if (data.err || data.errMsg) {
+          throw new KosisApiError(
+            (data.err as string) || 'API_ERROR',
+            (data.errMsg as string) || '알 수 없는 API 오류'
+          );
+        }
+
+        if (!Array.isArray(data)) {
+          if (data.result && Array.isArray(data.result)) {
+            return data.result as T[];
+          }
+          return [];
+        }
+
+        return data as T[];
+      } catch (error) {
+        // KOSIS 응답 에러는 즉시 throw (retry 무의미)
+        if (error instanceof KosisApiError && !isRetryable) {
+          throw error;
+        }
+        // 네트워크/timeout/5xx — retry 가능
+        if (attempt === MAX_ATTEMPTS - 1) {
+          if (error instanceof DOMException && error.name === 'AbortError') {
+            throw new KosisApiError(
+              'TIMEOUT',
+              `KOSIS API 응답 시간 초과 (${TIMEOUT_MS / 1000}초, ${MAX_ATTEMPTS}회 시도). 잠시 후 다시 시도해주세요.`
+            );
+          }
+          if (error instanceof KosisApiError) throw error;
+          throw new KosisApiError(
+            'NETWORK_ERROR',
+            '네트워크 오류가 발생했습니다.',
+            error as Error
+          );
+        }
+        await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+      } finally {
+        clearTimeout(timeoutId);
       }
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        throw new KosisApiError(
-          'TIMEOUT',
-          'KOSIS API 응답 시간 초과 (8초). 잠시 후 다시 시도해주세요.'
-        );
-      }
-      throw new KosisApiError(
-        'NETWORK_ERROR',
-        '네트워크 오류가 발생했습니다.',
-        error as Error
-      );
-    } finally {
-      clearTimeout(timeoutId);
     }
+    // 도달 불가 (위 loop에서 모두 return 또는 throw)
+    throw new KosisApiError('UNEXPECTED', '요청 처리 중 예기치 못한 종료');
   }
 
   /**
