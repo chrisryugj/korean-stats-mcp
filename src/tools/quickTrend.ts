@@ -21,9 +21,52 @@ import {
 
 const DISTRICT_PATTERN = /^[가-힣]{1,4}(구|군|시)$/;
 
+/**
+ * 자연어 키워드에서 yearCount 추정
+ *
+ * 인식 패턴:
+ *   - "지난/최근 N년", "N년 추세/추이" → N
+ *   - "작년 대비", "전년 대비" → 2
+ *   - "민선 N기" → N*4 (지방선거 임기 4년)
+ *   - "임기 N년" → N
+ *   - "취임 N년", "취임 N년차" → N+1 (취임 시점 포함)
+ *   - "역대", "장기" → 20
+ */
+export function extractYearCount(query: string): number | null {
+  // "민선 N기" → N*4
+  const minseon = query.match(/민선\s*(\d+)\s*기/);
+  if (minseon) {
+    const term = parseInt(minseon[1], 10);
+    if (term >= 1 && term <= 20) return Math.min(term * 4, 20);
+  }
+
+  // "지난/최근/근래/요즘 N년" or "N년 추세/추이/변화/대비"
+  const nYears = query.match(/(?:지난|최근|근래|요즘)\s*(\d+)\s*년/) ||
+                 query.match(/(\d+)\s*년\s*(?:추세|추이|변화|대비|간)/);
+  if (nYears) {
+    const n = parseInt(nYears[1], 10);
+    if (n >= 2 && n <= 20) return n;
+  }
+
+  // "임기 N년", "취임 N년차"
+  const imgi = query.match(/(?:임기|취임)\s*(\d+)\s*년/);
+  if (imgi) {
+    const n = parseInt(imgi[1], 10);
+    if (n >= 1 && n <= 20) return Math.min(n + 1, 20); // 비교 위해 +1 시점 포함
+  }
+
+  // "작년 대비", "전년 대비", "전년동기"
+  if (/(?:작년|전년)\s*(?:대비|동기)/.test(query)) return 2;
+
+  // "역대", "장기"
+  if (/역대|장기/.test(query)) return 20;
+
+  return null;
+}
+
 export const quickTrendSchema = {
   name: 'quick_trend',
-  description: `[빠른추세] 자연어 → 10년 시계열 + 증감률 + 최고/최저 + 추세 한 번에.
+  description: `[빠른추세] 자연어 → 시계열 + 증감률 + 최고/최저 + 추세 한 번에 (기본 10년).
 
 🔄 도구 라우팅:
 • "~추세/추이/변화/증감/감소/증가/경향" → 이 도구
@@ -33,7 +76,9 @@ export const quickTrendSchema = {
 
 ■ 자연어 자동 추출: keyword에 "광진구 인구 추이"처럼 통째 넣어도 추출됨
 ■ 자치구·시군 → 광역시도 fallback + 안내(자치구별은 fetch_kosis_excel 권장)
-■ 별칭 자동 변환: 저출산→출산율, 고령화→고령인구, population 등`,
+■ 별칭 자동 변환: 저출산→출산율, 고령화→고령인구, population 등
+■ 자연어 기간 자동 추출: "지난 5년", "민선 8기"(=32년→상한 20), "임기 4년차", "작년 대비"(=2), "역대"(=20)
+■ 장래추계 데이터(예: 노령화지수)는 isProjection=true + "추계" 안내 자동 부착`,
   inputSchema: z.object({
     keyword: z
       .string()
@@ -47,8 +92,7 @@ export const quickTrendSchema = {
       .min(2)
       .max(20)
       .optional()
-      .default(10)
-      .describe('분석 기간 (년 수, 기본: 10)'),
+      .describe('분석 기간 (년 수). 미지정 시 keyword에서 "지난 N년"·"민선 N기"·"임기 N년차"·"작년 대비" 자연어 자동 추출. 모두 없으면 10.'),
   }),
 };
 
@@ -75,6 +119,7 @@ interface QuickTrendResult {
     tableId: string;
     tableName: string;
   };
+  isProjection?: boolean;
   note?: string;
 }
 
@@ -190,7 +235,9 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
     }
 
     // 3. 시계열 데이터 조회
-    const yearCount = input.yearCount || 10;
+    // 우선순위: input.yearCount 명시 > 키워드 자연어 추출 > default 10
+    const naturalYearCount = extractYearCount(trimmedKeyword);
+    const yearCount = input.yearCount ?? naturalYearCount ?? 10;
     const results = await cache.getStatisticsData(
       {
         orgId: param.orgId,
@@ -290,13 +337,21 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
       insights.push(`⚠️ **주의**: 변동성이 높습니다 (${volatility.toFixed(1)}%)`);
     }
 
-    // 9. 요약 생성
+    // 9. 추계 데이터 안내 (장래추계 테이블이면 모든 데이터포인트가 미래연도)
+    const projectionNote = param.isProjection
+      ? `⚠️ 본 시계열은 통계청 장래추계 데이터입니다 (실측 아닌 미래 추계). 정책·보고 인용 시 "추계" 명시 권장.`
+      : null;
+
+    // 10. 요약 생성
     const summary = `${regionName}의 ${param.description} ${sortedData.length}년 추세: ${trendDescriptions[trend]}입니다. ` +
       `${sortedData[0].year}년 ${sortedData[0].formatted}${param.unit}에서 ` +
       `${sortedData[sortedData.length - 1].year}년 ${sortedData[sortedData.length - 1].formatted}${param.unit}로 ` +
       `${parseFloat(totalChange) >= 0 ? '증가' : '감소'}했습니다 (${parseFloat(totalChange) >= 0 ? '+' : ''}${totalChange}%).\n\n` +
       `📊 출처: ${param.tableName} (KOSIS)` +
-      (districtNote ? `\n\n${districtNote}` : '');
+      (districtNote ? `\n\n${districtNote}` : '') +
+      (projectionNote ? `\n\n${projectionNote}` : '');
+
+    const combinedNote = [districtNote, projectionNote].filter(Boolean).join(' / ');
 
     return {
       success: true,
@@ -312,7 +367,8 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
         tableId: param.tableId,
         tableName: param.tableName,
       },
-      ...(districtNote ? { note: districtNote } : {}),
+      ...(param.isProjection ? { isProjection: true } : {}),
+      ...(combinedNote ? { note: combinedNote } : {}),
     };
   } catch (error) {
     console.error('Quick trend error:', error);

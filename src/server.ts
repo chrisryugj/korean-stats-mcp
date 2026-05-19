@@ -18,8 +18,6 @@ import {
   compareStatisticsSchema,
   analyzeTimeSeries,
   analyzeTimeSeriesSchema,
-  getRecommendedStats,
-  getRecommendedStatsSchema,
   getTableInfo,
   getTableInfoSchema,
   quickStats,
@@ -57,9 +55,9 @@ export function createServer(): McpServer {
 
   const server = new McpServer({
     name: 'korean-stats-mcp',
-    version: '1.3.0',
+    version: '1.4.0',
     description:
-      '한국 통계청 KOSIS OpenAPI 기반 MCP 서버 - 91개 키워드, 17 시도 + 자치구 230+ 라우팅, 시계열 추세, 3개 체인 도구(지역 브리핑·다지역 비교·정책 영역) — 공무원 업무 종합 통계 도우미.',
+      '한국 통계청 KOSIS OpenAPI 기반 MCP 서버 - 91개 키워드, 17 시도 + 자치구 230+ 라우팅, 시계열 추세, 3개 체인 도구(지역 브리핑·다지역 비교·정책 영역) — 공무원 업무 종합 통계 도우미. v1.4.0: 자치구 region 파라미터 fix, chain_compare_regions max 17 (전국 비교), chain_region_brief speech 옵션, 장래추계 데이터 isProjection 안내, list ← 추천 흡수.',
   });
 
   // ===== 도구 등록 =====
@@ -154,25 +152,7 @@ export function createServer(): McpServer {
     }
   );
 
-  // 6. 추천 통계
-  server.tool(
-    getRecommendedStatsSchema.name,
-    getRecommendedStatsSchema.description,
-    getRecommendedStatsSchema.inputSchema.shape,
-    async (args) => {
-      const result = await getRecommendedStats(args as any);
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(result, null, 2),
-          },
-        ],
-      };
-    }
-  );
-
-  // 7. 통계표 정보 조회 (경량화 — filter + sampleSize)
+  // 6. 통계표 정보 조회 (경량화 — filter + sampleSize)
   server.tool(
     getTableInfoSchema.name,
     getTableInfoSchema.description,

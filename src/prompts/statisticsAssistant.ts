@@ -3,8 +3,10 @@
  */
 
 import { z } from 'zod';
-import { getAvailableTopics } from '../tools/getRecommendedStats.js';
-import { getAvailableViewCodes } from '../tools/getStatisticsList.js';
+import {
+  getAvailableViewCodes,
+  getAvailableRecommendedTopics,
+} from '../tools/getStatisticsList.js';
 
 export const statisticsAssistantPromptSchema = {
   name: 'statistics_assistant',
@@ -23,7 +25,7 @@ export function generateStatisticsAssistantPrompt(question: string): {
     content: { type: 'text'; text: string };
   }>;
 } {
-  const topics = getAvailableTopics();
+  const topics = getAvailableRecommendedTopics();
   const viewCodes = getAvailableViewCodes();
 
   const instructions = `[한국 통계 전문가로서 다음 질문에 답변해주세요]
@@ -35,7 +37,7 @@ export function generateStatisticsAssistantPrompt(question: string): {
 3. **get_statistics_data**: 특정 통계표의 데이터 조회
 4. **compare_statistics**: 시점별/항목별 통계 비교
 5. **analyze_time_series**: 시계열 추세 분석
-6. **get_recommended_statistics**: 분야별 추천 (${topics.map((t) => t.code).join(', ')})
+6. **get_statistics_list (recommendedTopic 옵션)**: 분야별 추천 카드 (${topics.map((t) => t.code).join(', ')})
 
 ## 질문
 ${question}

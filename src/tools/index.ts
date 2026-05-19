@@ -12,6 +12,7 @@ export {
   getStatisticsList,
   getStatisticsListSchema,
   getAvailableViewCodes,
+  getAvailableRecommendedTopics,
   type GetStatisticsListInput,
 } from './getStatisticsList.js';
 
@@ -33,12 +34,7 @@ export {
   type AnalyzeTimeSeriesInput,
 } from './analyzeTimeSeries.js';
 
-export {
-  getRecommendedStats,
-  getRecommendedStatsSchema,
-  getAvailableTopics,
-  type GetRecommendedStatsInput,
-} from './getRecommendedStats.js';
+// v1.4.0: get_recommended_statistics → get_statistics_list(recommendedTopic) 통폐합
 
 // 경량화 후 재활성화: filter + sampleSize로 응답량 제한
 export {

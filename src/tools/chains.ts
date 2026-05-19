@@ -35,13 +35,14 @@ export const chainRegionBriefSchema = {
   name: 'chain_region_brief',
   description: `[⛓체인] 지역 한장 종합 브리핑 — 인구·고용·경제·주거·사회·환경 핵심 13지표 병렬 조회.
 
-🎯 사용 시점: "OO시 통계 보고서", "지역 종합 브리핑", "시정연설/지방의회 답변 준비", "도시 현황 한눈에"
+🎯 사용 시점: "OO시 통계 보고서", "지역 종합 브리핑", "시정연설/지방의회 답변 준비", "도시 현황 한눈에", "취임사·신년사 한 줄 통계"
 🔄 도구 비교:
 • 단일 지표만 필요 → quick_stats
 • 다지역 비교 매트릭스 → chain_compare_regions
 • 정책 영역 추세 묶음 → chain_policy_indicator
 
 ■ 반환: 13개 지표(인구/출산율/고령/실업률/고용률/GRDP/임금/주택/전세/의사수/교통사고/범죄율/미세먼지) + 자치구→광역시도 fallback 자동
+■ format='speech'면 연설용 1줄 요약만 (취임사·신년사·연설문 통계 인용용)
 ■ 부분 실패 허용 (지표별 데이터 가용성 상이)`,
   inputSchema: z.object({
     region: z
@@ -52,13 +53,18 @@ export const chainRegionBriefSchema = {
       .optional()
       .default(false)
       .describe('전국 평균 동시 조회 여부 (지역과 비교용)'),
+    format: z
+      .enum(['detail', 'speech'])
+      .optional()
+      .default('detail')
+      .describe('출력 형식. detail=13지표 전체, speech=상위 5개 한 줄 요약(취임사·신년사용)'),
   }),
 };
 
 export type ChainRegionBriefInput = z.infer<typeof chainRegionBriefSchema.inputSchema>;
 
 export async function chainRegionBrief(input: ChainRegionBriefInput) {
-  const { region, includeNational } = input;
+  const { region, includeNational, format } = input;
 
   const fetchOne = async (kw: string, regionArg?: string) => {
     try {
@@ -107,21 +113,49 @@ export async function chainRegionBrief(input: ChainRegionBriefInput) {
   }
 
   const successCount = regional.filter((r) => r.success).length;
+  const successItems = regional.filter((r) => r.success);
+  const failedItems = regional.filter((r) => !r.success);
+
+  // 자치구→광역시도 fallback 노트가 있으면 우선 노출 (모든 indicator에 동일 노트가 들어가므로 첫 1개)
+  const districtFallbackNote =
+    regional.find((r) => r.note && r.note.includes('자치구'))?.note ?? null;
+  const otherNote = regional.find((r) => r.note && !r.note.includes('자치구'))?.note ?? null;
+
+  // speech 형식: 상위 5개 핵심 지표만 한 줄 요약
+  if (format === 'speech') {
+    const speechIndicators = ['인구', '출산율', '고령인구', '실업률', 'GRDP'];
+    const speechLines = successItems
+      .filter((r) => speechIndicators.includes(r.keyword))
+      .map((r) => `${r.label} ${r.value}${r.unit ?? ''}`);
+    return {
+      success: true,
+      region,
+      format: 'speech',
+      coverage: `${successCount}/${REGION_BRIEF_INDICATORS.length} 지표 가용`,
+      speechLine: `${region}의 ${speechLines.join(', ')} (${successItems[0]?.period ?? '-'} 기준).`,
+      indicators: successItems.filter((r) => speechIndicators.includes(r.keyword)),
+      fallbackNote: districtFallbackNote ?? otherNote ?? null,
+    };
+  }
 
   return {
     success: true,
     region,
+    format: 'detail',
     coverage: `${successCount}/${REGION_BRIEF_INDICATORS.length} 지표 조회 성공`,
     indicators: regional,
     national,
     summary:
       `📍 **${region} 종합 브리핑** (${successCount}/${REGION_BRIEF_INDICATORS.length} 지표 가용)\n` +
-      regional
-        .filter((r) => r.success)
+      successItems
         .map((r) => `• ${r.label}: ${r.value}${r.unit ?? ''} (${r.period ?? '-'})`)
-        .join('\n'),
+        .join('\n') +
+      (failedItems.length > 0
+        ? `\n\n⚠️ 미가용 지표(${failedItems.length}): ${failedItems.map((r) => r.keyword).join(', ')}`
+        : ''),
     fallbackNote:
-      regional.find((r) => r.note)?.note ??
+      districtFallbackNote ??
+      otherNote ??
       '광역시도 단위 데이터. 자치구별 정밀 데이터는 fetch_kosis_excel 사용.',
   };
 }
@@ -146,8 +180,8 @@ export const chainCompareRegionsSchema = {
     regions: z
       .array(z.string())
       .min(2)
-      .max(10)
-      .describe('비교 지역 배열 (2~10개). 예: ["서울", "부산", "인천"]'),
+      .max(17)
+      .describe('비교 지역 배열 (2~17개, 전국 광역시도 17개 동시 비교 가능). 예: ["서울", "부산", "인천"]'),
     keywords: z
       .array(z.string())
       .min(1)
@@ -234,6 +268,20 @@ export async function chainCompareRegions(input: ChainCompareRegionsInput) {
     };
   });
 
+  // 자치구→광역시도 fallback 노트 중복 제거하여 region별 1건만 노출
+  const fallbackNotesByRegion = new Map<string, string>();
+  for (const m of matrix) {
+    for (const c of m.cells) {
+      if (c.note && c.note.includes('자치구') && !fallbackNotesByRegion.has(m.region)) {
+        fallbackNotesByRegion.set(m.region, c.note);
+        break;
+      }
+    }
+  }
+  const fallbackNotes = Array.from(fallbackNotesByRegion.entries()).map(
+    ([region, note]) => ({ region, note })
+  );
+
   return {
     success: true,
     regions,
@@ -249,6 +297,7 @@ export async function chainCompareRegions(input: ChainCompareRegionsInput) {
             `• ${i.keyword}: 최고 ${i.highest!.region}(${i.highest!.value}${i.highest!.unit ?? ''}), 최저 ${i.lowest!.region}(${i.lowest!.value}${i.lowest!.unit ?? ''})`
         )
         .join('\n'),
+    ...(fallbackNotes.length > 0 ? { fallbackNotes } : {}),
   };
 }
 

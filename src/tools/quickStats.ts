@@ -11,8 +11,10 @@ import { getCacheManager } from '../cache/index.js';
 import {
   QUICK_STATS_PARAMS,
   KEYWORD_ALIASES,
+  KEYWORD_LOOKUP,
   getQuickStatsParam,
   getRegionCode,
+  normalizeKeywordKey,
 } from '../data/quickStatsParams.js';
 import { findProvinceByDistrict, PROVINCES, AMBIGUOUS_DISTRICTS } from '../utils/regions.js';
 
@@ -86,6 +88,7 @@ interface QuickStatsResult {
     tableId: string;
     tableName: string;
   };
+  isProjection?: boolean;
   note?: string;
 }
 
@@ -171,7 +174,7 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
       return {
         success: false,
         answer: '조회할 통계 키워드를 입력해주세요.',
-        note: '예: "인구", "실업률", "GDP", "서울 아파트가격". 카테고리별 키워드는 get_recommended_statistics 참고.',
+        note: '예: "인구", "실업률", "GDP", "서울 아파트가격". 카테고리별 키워드는 get_statistics_list(recommendedTopic) 참고.',
       };
     }
 
@@ -210,42 +213,40 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
     let requestedRegion: string | null = null;
     let districtNote: string | null = null;
 
-    // 명시적 region 파라미터 우선
-    if (input.region) {
-      requestedRegion = input.region;
-    }
-
-    // 쿼리에서 자치구 → 광역시도 fallback
+    // 자치구·시군 추출: input.region 우선, 없으면 query에서.
     // (quickStats는 광역시도 단위까지 지원. 자치구는 fetch_kosis_excel 권장)
-    if (!requestedRegion) {
-      const districtName = extractDistrictName(trimmedQuery);
-      // 광역시도명도 함께 추출 — 모호한 자치구 disambiguate에 활용
-      const provFromQuery = extractProvinceName(trimmedQuery, /* districtDetected: */ false);
+    const trimmedRegion = input.region?.trim() ?? '';
+    const districtFromRegion = trimmedRegion ? extractDistrictName(trimmedRegion) : null;
+    const districtFromQuery = !districtFromRegion ? extractDistrictName(trimmedQuery) : null;
+    const districtName = districtFromRegion ?? districtFromQuery;
+    const provFromQuery = extractProvinceName(trimmedQuery, /* districtDetected: */ false);
 
-      if (districtName) {
-        let prov = findProvinceByDistrict(districtName);
+    if (districtName) {
+      let prov = findProvinceByDistrict(districtName);
 
-        // 모호한 자치구(예: '동구', '북구') + 광역시도 컨텍스트가 함께 있으면 그쪽 우선
-        if (provFromQuery && AMBIGUOUS_DISTRICTS[districtName]?.includes(provFromQuery)) {
-          const candidate = PROVINCES.find((p) => p.shortName === provFromQuery);
-          if (candidate) prov = candidate;
-        }
-
-        if (prov) {
-          requestedRegion = prov.shortName;
-          districtNote = `💡 "${districtName}" 자치구 데이터는 quick_stats가 지원하지 않아 ${prov.shortName} 광역시도 데이터로 표시했습니다. 자치구 단위는 fetch_kosis_excel("${districtName}", "${keyword}")로 조회하세요.`;
-        } else if (provFromQuery) {
-          // 자치구 매핑 실패했지만 광역시도는 명시 → 그걸로 fallback
-          requestedRegion = provFromQuery;
-          districtNote = `💡 "${districtName}"은(는) 자치구 매핑이 모호합니다. ${provFromQuery} 광역시도 데이터로 표시합니다.`;
-        } else {
-          // 자치구도 광역시도도 매칭 실패 → 전국 데이터
-          districtNote = `💡 "${districtName}"은(는) 자치구 매핑이 모호합니다 (여러 광역시도에 동명 자치구 존재 가능). 전국 데이터로 표시합니다. 정확한 자치구 조회는 search_statistics("${districtName} ${keyword}") 사용.`;
-        }
-      } else if (provFromQuery) {
-        // 자치구 없고 광역시도만 있음
-        requestedRegion = provFromQuery;
+      // 모호한 자치구(예: '동구', '북구') + 광역시도 컨텍스트가 함께 있으면 그쪽 우선
+      if (provFromQuery && AMBIGUOUS_DISTRICTS[districtName]?.includes(provFromQuery)) {
+        const candidate = PROVINCES.find((p) => p.shortName === provFromQuery);
+        if (candidate) prov = candidate;
       }
+
+      if (prov) {
+        requestedRegion = prov.shortName;
+        districtNote = `💡 "${districtName}" 자치구 데이터는 quick_stats가 지원하지 않아 ${prov.shortName} 광역시도 데이터로 표시했습니다. 자치구 단위는 fetch_kosis_excel("${districtName}", "${keyword}")로 조회하세요.`;
+      } else if (provFromQuery) {
+        // 자치구 매핑 실패했지만 광역시도는 명시 → 그걸로 fallback
+        requestedRegion = provFromQuery;
+        districtNote = `💡 "${districtName}"은(는) 자치구 매핑이 모호합니다. ${provFromQuery} 광역시도 데이터로 표시합니다.`;
+      } else {
+        // 자치구도 광역시도도 매칭 실패 → 전국 데이터
+        districtNote = `💡 "${districtName}"은(는) 자치구 매핑이 모호합니다 (여러 광역시도에 동명 자치구 존재 가능). 전국 데이터로 표시합니다. 정확한 자치구 조회는 search_statistics("${districtName} ${keyword}") 사용.`;
+      }
+    } else if (trimmedRegion) {
+      // 명시적 region 파라미터 (광역시도)
+      requestedRegion = trimmedRegion;
+    } else if (provFromQuery) {
+      // query에서 광역시도만 추출
+      requestedRegion = provFromQuery;
     }
 
     // 지역 요청이 있는 경우 처리
@@ -361,8 +362,16 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
       description: param.description,
     });
 
-    // 출처 + 자치구 안내 부착
-    const answer = `${baseAnswer}\n\n📊 출처: ${param.tableName} (KOSIS)${districtNote ? `\n\n${districtNote}` : ''}`;
+    // 장래추계 데이터 안내 (미래연도 데이터는 실측이 아님)
+    const projectionNote = param.isProjection
+      ? `⚠️ 본 수치는 통계청 장래추계 데이터입니다 (실측 아닌 미래 추계). 정책·보고 인용 시 "추계" 명시 권장.`
+      : null;
+
+    // 출처 + 자치구 + 추계 안내 부착
+    const noteSuffix = [districtNote, projectionNote].filter(Boolean).join('\n\n');
+    const answer = `${baseAnswer}\n\n📊 출처: ${param.tableName} (KOSIS)${noteSuffix ? `\n\n${noteSuffix}` : ''}`;
+
+    const combinedNote = [districtNote, projectionNote].filter(Boolean).join(' / ');
 
     return {
       success: true,
@@ -375,7 +384,8 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
         tableId: param.tableId,
         tableName: param.tableName,
       },
-      ...(districtNote ? { note: districtNote } : {}),
+      ...(param.isProjection ? { isProjection: true } : {}),
+      ...(combinedNote ? { note: combinedNote } : {}),
     };
   } catch (error) {
     console.error('Quick stats error:', error);
@@ -405,38 +415,30 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
 }
 
 /**
- * 쿼리에서 키워드 추출
+ * 쿼리에서 키워드 추출 (korean-law-mcp의 정규화 alias 패턴 차용)
  *
- * 매칭 우선순위:
- *   1. 정식 키워드 직접 매칭 (긴 것 우선)
- *   2. 별칭 매칭 (저출산→출산율 등, 긴 것 우선)
- *   3. 공백 분리 후 단어별 직접/별칭 매칭
- *   4. 원본 쿼리 그대로 반환
+ * 알고리즘:
+ *   1. 정규화 (공백·대소문자·중점/하이픈 제거 + 률/율 오타 매핑)
+ *   2. KEYWORD_LOOKUP에서 가장 긴 정규화 키 부분 매칭 (긴 키 우선 → 충돌 방지)
+ *      → "경기 노인 인구"는 '노인인구'(4자)가 '인구'(2자)보다 먼저 매칭
+ *      → "G D P"·"출산률"·"PM 2.5"도 모두 정규화 후 매칭
+ *   3. 매칭 실패 시 원문 그대로 반환 (getQuickStatsParam에서 추가 처리)
+ *
+ * KEYWORD_LOOKUP은 정식 키워드 + KEYWORD_ALIASES + BASIC_TYPO_MAP을 통합한 사전 빌드 Map.
  */
+const SORTED_NORM_KEYS = Array.from(KEYWORD_LOOKUP.keys())
+  .filter((k) => k.length >= 2)
+  .sort((a, b) => b.length - a.length);
+
 export function extractKeyword(query: string): string {
-  // 1. 정식 키워드
-  const sortedKeywords = Object.keys(QUICK_STATS_PARAMS).sort((a, b) => b.length - a.length);
-  for (const keyword of sortedKeywords) {
-    if (query.includes(keyword)) {
-      return keyword;
-    }
-  }
+  if (!query) return query;
+  const normQuery = normalizeKeywordKey(query);
+  if (!normQuery) return query;
 
-  // 2. 별칭 (저출산, 고령화, population 등)
-  const sortedAliases = Object.keys(KEYWORD_ALIASES).sort((a, b) => b.length - a.length);
-  for (const alias of sortedAliases) {
-    if (query.includes(alias) || query.toLowerCase().includes(alias.toLowerCase())) {
-      return alias;
+  for (const nk of SORTED_NORM_KEYS) {
+    if (normQuery.includes(nk)) {
+      return KEYWORD_LOOKUP.get(nk)!;
     }
-  }
-
-  // 3. 공백 분리 매칭
-  const words = query.split(/\s+/);
-  for (const word of words) {
-    if (QUICK_STATS_PARAMS[word]) return word;
-    if (KEYWORD_ALIASES[word]) return word;
-    const lower = word.toLowerCase();
-    if (KEYWORD_ALIASES[lower]) return lower;
   }
 
   return query;

@@ -18,6 +18,8 @@ export interface QuickStatsParam {
   regionCodes?: Record<string, string>;
   // 지원하는 주기 (기본: ['Y'])
   supportedPeriods?: ('Y' | 'Q' | 'M')[];
+  // 통계청 장래추계 데이터를 포함하는 테이블 (미래연도 데이터 → 실측 아닌 추계)
+  isProjection?: boolean;
 }
 
 // ===== 공통 지역 코드 상수 =====
@@ -1065,26 +1067,28 @@ export const QUICK_STATS_PARAMS: Record<string, QuickStatsParam> = {
   },
 
   // ===== 노령화지수 관련 =====
-  // DT_1YL12501E: 노령화지수(시도) - 2000~2052, 시도별 지원
+  // DT_1YL12501E: 노령화지수(시도) - 장래추계 데이터 (2033~2052, 미래연도)
   '노령화지수': {
     orgId: '101',
     tableId: 'DT_1YL12501E',
     tableName: '노령화지수(시도)',
-    description: '노령화지수 (65세이상/15세미만*100)',
+    description: '노령화지수 (65세이상/15세미만*100, 장래추계)',
     objL1: '00',          // 전국
     itemId: 'T10',        // 노령화지수
     unit: '',
     regionCodes: REGION_CODES_DEMOGRAPHIC,
+    isProjection: true,
   },
   '고령화지수': {
     orgId: '101',
     tableId: 'DT_1YL12501E',
     tableName: '노령화지수(시도)',
-    description: '노령화지수 (65세이상/15세미만*100)',
+    description: '노령화지수 (65세이상/15세미만*100, 장래추계)',
     objL1: '00',
     itemId: 'T10',
     unit: '',
     regionCodes: REGION_CODES_DEMOGRAPHIC,
+    isProjection: true,
   },
 
   // ===== 고령인구 관련 =====
@@ -1179,41 +1183,184 @@ export const QUICK_STATS_PARAMS: Record<string, QuickStatsParam> = {
 };
 
 /**
- * 키워드로 파라미터 조회
- */
-/**
  * 자연어 별칭 → 정식 키워드 매핑
- * (예: "저출산 현황" → "출산율", "고령화" → "고령인구")
+ *
+ * 설계 (korean-law-mcp의 LAW_ALIAS_ENTRIES 패턴 차용):
+ *   - 공무원 보고서·민원 응답·연설문에서 흔히 등장하는 구어체/줄임말 포괄
+ *   - 영문(소문자)도 동일 dict (영문은 lowercase로 정규화)
+ *   - 률↔율 오타 보정은 BASIC_TYPO_MAP이 별도 담당
  */
 export const KEYWORD_ALIASES: Record<string, string> = {
-  // 인구/출산
+  // 인구/출산/사망/혼인
   '저출산': '출산율',
-  '고령화': '고령인구',
-  '노령화': '노령화지수',
+  '저출생': '출산율',
+  '합계출산': '출산율',
+  '출산': '출산율',
+  '출생': '출생아수',
+  '출생수': '출생아수',
+  '신생아수': '출생아수',
+  '사망': '사망자수',
+  '사망수': '사망자수',
+  '혼인': '혼인건수',
+  '결혼': '혼인건수',
+  '이혼': '이혼건수',
   '인구통계': '인구',
   '총인구수': '총인구',
-  // 영문 (lowercase)
+  '주민등록인구': '인구',
+  '국민': '인구',
+  // 고령화
+  '고령화': '고령인구',
+  '노령화': '노령화지수',
+  '노인': '고령인구',
+  '노년': '고령인구',
+  '노년층': '고령인구',
+  '노인층': '고령인구',
+  '실버': '고령인구',
+  '65세이상': '고령인구',
+  // 일자리/임금
+  '취업': '취업자수',
+  '취업률': '고용률',
+  '청년실업': '실업률',
+  '청년실업률': '실업률',
+  '실엄': '실업률',
+  '월소득': '월급',
+  '월수입': '월급',
+  '연봉': '월급',
+  '연소득': '월급',
+  '봉급': '월급',
+  '급여': '월급',
+  '소득': '월급',
+  // 경제
+  '국민총생산': 'GDP',
+  '국내총생산': 'GDP',
+  '실질gdp': 'GDP',
+  '명목gdp': 'GDP',
+  '경제규모': 'GDP',
+  '지역gdp': 'GRDP',
+  '시도gdp': 'GRDP',
+  '시도총생산': 'GRDP',
+  '성장률': '경제성장률',
+  // 물가
+  '물가상승률': '물가',
+  '인플레이션': '물가',
+  '소비자물가상승률': '소비자물가',
+  // 주거
+  '집값': '주택가격',
+  '주택값': '주택가격',
+  '주택매매값': '주택가격',
+  '아파트값': '아파트가격',
+  '아파트매매값': '아파트가격',
+  '전셋값': '전세가격',
+  '전세값': '전세가격',
+  // 환경
+  '미세먼지농도': '미세먼지',
+  '대기질': '미세먼지',
+  '대기상태': '미세먼지',
+  '공기질': '미세먼지',
+  // 의료
+  '의료진': '의사수',
+  '의료인': '의사수',
+  '병원의사': '의사수',
+  // 교통/안전
+  '차량': '자동차',
+  '차량등록': '자동차',
+  '차량대수': '자동차',
+  '사고': '교통사고',
+  '범죄': '범죄율',
+  // 관광
+  '입국객': '외래관광객',
+  '방한객': '외래관광객',
+  '관광객수': '외래관광객',
+  // 무역
+  '무역': '수출',
+  '수출액수': '수출액',
+  '수입액수': '수입액',
+  // 영문 (lowercase로 정규화 매칭)
   'population': '인구',
   'unemployment': '실업률',
   'employment': '고용률',
   'fertility': '출산율',
   'birth': '출생아수',
+  'birthrate': '출산율',
   'death': '사망자수',
+  'mortality': '사망률',
   'marriage': '혼인율',
   'divorce': '이혼율',
   'inflation': '물가',
   'cpi': '소비자물가',
   'export': '수출',
   'import': '수입',
+  'aging': '고령인구',
+  'elderly': '고령인구',
+  'gdp': 'GDP',
+  'grdp': 'GRDP',
+  'pm25': 'PM2.5',
+  'pm10': 'PM10',
 };
 
 /**
- * 키워드 조회 (대소문자 무시 + 별칭 지원)
+ * 자주 발생하는 오타·표기 변형 → 정식 키워드 매핑
+ * (korean-law-mcp의 BASIC_CHAR_MAP 패턴 차용 — 키워드 단위로 확장)
+ *
+ * 주요 케이스:
+ *   - 률/율 받침 규칙 위반 (출산률, 고용율, 이혼률 등)
+ *   - 공백·중점 변형 (이미 normalizeKeywordKey가 제거하나 명시 매핑도 둠)
+ */
+const BASIC_TYPO_MAP: Record<string, string> = {
+  // 률 ↔ 율 오타 (받침 ㄴ/ㅇ 뒤는 율, 그 외 률)
+  '출산률': '출산율',
+  '출생률': '조출생률',
+  '사망율': '사망률',
+  '혼인률': '혼인율',
+  '이혼률': '이혼율',
+  '고용율': '고용률',
+  '실엄률': '실업률',
+  '실엄율': '실업률',
+  '실업율': '실업률',
+  '취업율': '고용률',
+  '범죄률': '범죄율',
+  // 공백 제거 후 흔한 변형
+  '65세이상인구': '고령인구',
+  '의료기관종사의사수': '의사수',
+};
+
+/**
+ * 키워드 정규화 키 (공백 제거 + 소문자 + 일부 특수문자 제거)
+ *
+ * 정규화 후 동등 비교에 사용. 비교용으로만 사용 — 사용자 입력 자체를 바꾸지 않음.
+ */
+function normalizeKeywordKey(value: string): string {
+  if (!value) return '';
+  return value
+    .normalize('NFC')
+    .toLowerCase()
+    .replace(/\s+/gu, '')
+    .replace(/[·•・.\-_]/gu, '');
+}
+
+/** 정규화 키 → 정식 키워드 lookup (사전 빌드) */
+const KEYWORD_LOOKUP = new Map<string, string>();
+for (const k of Object.keys(QUICK_STATS_PARAMS)) {
+  KEYWORD_LOOKUP.set(normalizeKeywordKey(k), k);
+}
+for (const [alias, target] of Object.entries(KEYWORD_ALIASES)) {
+  const key = normalizeKeywordKey(alias);
+  if (!KEYWORD_LOOKUP.has(key)) KEYWORD_LOOKUP.set(key, target);
+}
+for (const [typo, fix] of Object.entries(BASIC_TYPO_MAP)) {
+  const key = normalizeKeywordKey(typo);
+  if (!KEYWORD_LOOKUP.has(key)) KEYWORD_LOOKUP.set(key, fix);
+}
+
+export { normalizeKeywordKey, KEYWORD_LOOKUP, BASIC_TYPO_MAP };
+
+/**
+ * 키워드 조회 — 정확/별칭/정규화/오타 모두 시도
  *
  * 우선순위:
- *   1. 정확 매칭 (대소문자 그대로)
- *   2. 별칭 매핑
- *   3. 대소문자 무시 매칭 (영문 키워드용)
+ *   1. 정확 매칭 (사용자 입력 그대로)
+ *   2. 별칭 매핑 (대소문자 변형 포함)
+ *   3. 정규화 매칭 (공백·소문자·특수문자 무시 + 오타 교정)
  */
 export function getQuickStatsParam(keyword: string): QuickStatsParam | undefined {
   if (!keyword) return undefined;
@@ -1223,16 +1370,18 @@ export function getQuickStatsParam(keyword: string): QuickStatsParam | undefined
   // 1. 정확 매칭
   if (QUICK_STATS_PARAMS[trimmed]) return QUICK_STATS_PARAMS[trimmed];
 
-  // 2. 별칭 (영문은 소문자로 정규화)
+  // 2. 별칭 (대소문자 그대로 + 소문자 모두 시도)
   const lower = trimmed.toLowerCase();
   const aliasTarget = KEYWORD_ALIASES[trimmed] ?? KEYWORD_ALIASES[lower];
   if (aliasTarget && QUICK_STATS_PARAMS[aliasTarget]) {
     return QUICK_STATS_PARAMS[aliasTarget];
   }
 
-  // 3. 대소문자 무시 매칭 (GDP/gdp, PM2.5/pm2.5 등)
-  for (const k of Object.keys(QUICK_STATS_PARAMS)) {
-    if (k.toLowerCase() === lower) return QUICK_STATS_PARAMS[k];
+  // 3. 정규화 매칭 (공백·소문자·중점·하이픈 무시 + 오타 교정)
+  const normKey = normalizeKeywordKey(trimmed);
+  const target = KEYWORD_LOOKUP.get(normKey);
+  if (target && QUICK_STATS_PARAMS[target]) {
+    return QUICK_STATS_PARAMS[target];
   }
 
   return undefined;

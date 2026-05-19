@@ -25,15 +25,19 @@ async function main() {
     await server.connect(transport);
 
     console.error('✅ MCP 서버가 성공적으로 시작되었습니다.');
-    console.error('📊 사용 가능한 도구 (8개):');
-    console.error('   - quick_stats: ⭐ 빠른 조회 (43개 키워드)');
+    console.error('📊 사용 가능한 도구 (12개):');
+    console.error('   - quick_stats: ⭐ 빠른 조회 (91개 키워드)');
     console.error('   - quick_trend: ⭐ 추세 분석');
+    console.error('   - chain_region_brief: ⛓ 지역 종합 브리핑 (speech 옵션)');
+    console.error('   - chain_compare_regions: ⛓ N지역×M지표 매트릭스 (전국 17개)');
+    console.error('   - chain_policy_indicator: ⛓ 정책 영역 시계열');
     console.error('   - search_statistics: 통계 검색');
-    console.error('   - get_statistics_list: 목록 조회');
+    console.error('   - get_statistics_list: 목록 탐색 + 추천 카드');
     console.error('   - get_statistics_data: 데이터 조회');
     console.error('   - compare_statistics: 비교 분석');
     console.error('   - analyze_time_series: 시계열 분석');
-    console.error('   - get_recommended_statistics: 추천 통계');
+    console.error('   - get_table_info: 통계표 메타');
+    console.error('   - fetch_kosis_excel: 자치구 엑셀 파싱');
   } catch (error) {
     console.error('❌ 서버 시작 실패:', error);
     process.exit(1);
