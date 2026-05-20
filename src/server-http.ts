@@ -55,6 +55,15 @@ async function main() {
       }
       next();
     });
+
+    // 5분마다 만료된 버킷 정리 — IP 다양성(봇·스캐너)으로 Map이 무한 증가하는
+    // 메모리 누수 방지. .unref()로 이 타이머가 프로세스 종료를 막지 않게 함.
+    setInterval(() => {
+      const now = Date.now();
+      for (const [ip, b] of buckets) {
+        if (now >= b.resetAt) buckets.delete(ip);
+      }
+    }, 5 * 60 * 1000).unref();
   }
 
   // CORS
@@ -72,7 +81,7 @@ async function main() {
     res.json({
       status: 'ok',
       name: 'korean-stats-mcp',
-      version: '1.6.0',
+      version: '1.7.1',
       tools: 12,
     });
   });
@@ -80,7 +89,7 @@ async function main() {
   app.get('/', (_req, res) => {
     res.json({
       name: 'korean-stats-mcp',
-      version: '1.6.0',
+      version: '1.7.1',
       description: 'KOSIS 91 키워드 + 17 시도 + 자치구 230+ 라우팅 + 3개 체인 MCP',
       endpoint: '/mcp (POST only)',
       tools: 12,
@@ -90,16 +99,25 @@ async function main() {
 
   // MCP endpoint (POST only — stateless)
   app.post('/mcp', async (req, res) => {
+    let server: ReturnType<typeof createServer> | undefined;
+    let transport: StreamableHTTPServerTransport | undefined;
     try {
-      const server = createServer();
-      const transport = new StreamableHTTPServerTransport({
+      server = createServer();
+      transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
         enableJsonResponse: true,
       });
-      res.on('close', () => transport.close());
+      // 요청 종료 시 fresh server·transport 모두 정리 — 매 POST 생성분 누수 방지.
+      // transport만 닫으면 MCP Server 객체가 정리되지 않아 점진적 누수가 쌓인다.
+      res.on('close', () => {
+        try { transport?.close(); } catch { /* ignore */ }
+        server?.close().catch(() => {});
+      });
       await server.connect(transport);
       await transport.handleRequest(req as any, res as any, req.body);
     } catch (error) {
+      try { transport?.close(); } catch { /* ignore */ }
+      server?.close().catch(() => {});
       if (res.headersSent) return;
       const msg = scrub(error instanceof Error ? error.message : String(error));
       res.status(500).json({
@@ -128,9 +146,19 @@ async function main() {
     });
   });
 
-  app.listen(PORT, () => {
+  const httpServer = app.listen(PORT, () => {
     console.log(`[korean-stats-mcp] HTTP server listening on :${PORT}`);
   });
+
+  // Graceful shutdown — Fly.io 머신 재시작·배포 시 SIGTERM 전송.
+  // 진행 중 요청을 보전하며 정상 종료, 10초 내 미종료 시 강제 exit.
+  const shutdown = (signal: string): void => {
+    console.log(`[korean-stats-mcp] ${signal} received — shutting down.`);
+    httpServer.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 10_000).unref();
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 main().catch((err) => {
