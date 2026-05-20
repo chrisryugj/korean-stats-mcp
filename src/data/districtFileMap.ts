@@ -28,7 +28,8 @@ export interface DistrictOpenApiRoute {
   orgId: string;
   tblId: string;
   itmId: string;
-  prdSe: 'Y' | 'Q' | 'M';
+  /** KOSIS 수록주기. 라벨링은 응답 PRD_SE 우선 — route 값은 호출 힌트. 'S'=반기. */
+  prdSe: 'Y' | 'Q' | 'M' | 'S';
   /** 자연어 응답 description (예: '주민등록 총인구', '합계출산율') */
   description: string;
   /** 단위 (예: '명', '%') — 응답에서 자동 부착 */
@@ -89,17 +90,19 @@ export const DISTRICT_OPENAPI_ROUTES: Record<string, DistrictOpenApiRoute> = {
   // ── 고용 (DT_1ES3A03_A01S 시군구/연령별 취업자 및 고용률) ─ OBJ_ID=A, objL2=YRE(연령) ──
   // ITEM: T00=취업자(천명), T12=고용률(%). objL2='000'=전체 연령(계).
   // ITM_NM 패턴 — 광역시 자치구: "서울 광진구"(결합), 도 시군: "수원시"(단일). UP_ITM_ID 비어있음 — 결합/단일 fallback 필요.
-  '고용률':    { orgId: '101', tblId: 'DT_1ES3A03_A01S', itmId: 'T12', prdSe: 'Y', objId: 'A', objL2: '000', description: '고용률', unit: '%' },
-  '취업자수':  { orgId: '101', tblId: 'DT_1ES3A03_A01S', itmId: 'T00', prdSe: 'Y', objId: 'A', objL2: '000', description: '취업자', unit: '천명' },
-  '취업자':    { orgId: '101', tblId: 'DT_1ES3A03_A01S', itmId: 'T00', prdSe: 'Y', objId: 'A', objL2: '000', description: '취업자', unit: '천명' },
+  // 주기 — 반기 공표(prdSe='S'). PRD_DE 끝 2자리 01=상반기/02=하반기. 라벨은 응답 PRD_SE 기준.
+  '고용률':    { orgId: '101', tblId: 'DT_1ES3A03_A01S', itmId: 'T12', prdSe: 'S', objId: 'A', objL2: '000', description: '고용률', unit: '%' },
+  '취업자수':  { orgId: '101', tblId: 'DT_1ES3A03_A01S', itmId: 'T00', prdSe: 'S', objId: 'A', objL2: '000', description: '취업자', unit: '천명' },
+  '취업자':    { orgId: '101', tblId: 'DT_1ES3A03_A01S', itmId: 'T00', prdSe: 'S', objId: 'A', objL2: '000', description: '취업자', unit: '천명' },
 
   // ── 실업 (DT_1ES3A01S 시군구 경제활동인구 총괄) ─ OBJ_ID=A, ITM_NM 패턴 동일 ──
   // ITEM: T3=취업자, T4=실업자, T7=고용률, T8=실업률(%). 자치구 4자리 코드.
-  '실업률':    { orgId: '101', tblId: 'DT_1ES3A01S', itmId: 'T8', prdSe: 'Y', objId: 'A', description: '실업률', unit: '%' },
-  '실업자수':  { orgId: '101', tblId: 'DT_1ES3A01S', itmId: 'T4', prdSe: 'Y', objId: 'A', description: '실업자', unit: '천명' },
-  '실업자':    { orgId: '101', tblId: 'DT_1ES3A01S', itmId: 'T4', prdSe: 'Y', objId: 'A', description: '실업자', unit: '천명' },
-  '경제활동인구': { orgId: '101', tblId: 'DT_1ES3A01S', itmId: 'T2', prdSe: 'Y', objId: 'A', description: '경제활동인구', unit: '천명' },
-  '비경제활동인구': { orgId: '101', tblId: 'DT_1ES3A01S', itmId: 'T5', prdSe: 'Y', objId: 'A', description: '비경제활동인구', unit: '천명' },
+  // 주기 — 반기 공표(prdSe='S'). 라벨은 응답 PRD_SE 기준.
+  '실업률':    { orgId: '101', tblId: 'DT_1ES3A01S', itmId: 'T8', prdSe: 'S', objId: 'A', description: '실업률', unit: '%' },
+  '실업자수':  { orgId: '101', tblId: 'DT_1ES3A01S', itmId: 'T4', prdSe: 'S', objId: 'A', description: '실업자', unit: '천명' },
+  '실업자':    { orgId: '101', tblId: 'DT_1ES3A01S', itmId: 'T4', prdSe: 'S', objId: 'A', description: '실업자', unit: '천명' },
+  '경제활동인구': { orgId: '101', tblId: 'DT_1ES3A01S', itmId: 'T2', prdSe: 'S', objId: 'A', description: '경제활동인구', unit: '천명' },
+  '비경제활동인구': { orgId: '101', tblId: 'DT_1ES3A01S', itmId: 'T5', prdSe: 'S', objId: 'A', description: '비경제활동인구', unit: '천명' },
 
   // ── 인구동태 시군구 (INH_* 인디케이터 테이블 — 자치구 단위 연간 데이터) ──
   // 주의: DT_1B8000I 메타에는 자치구 행이 있으나 KOSIS API 실 데이터 0건(전국/광역/자치구 모두 미제공) → 사용 불가.
@@ -184,6 +187,42 @@ export const DISTRICT_KEYWORD_TO_FILESN: Record<string, number> = {
   '의사수': 9,
   '의료인력': 9,
 };
+
+/**
+ * file_sn(광진구 기준 분야) → 통계연보 분야 파일명 매칭 패턴
+ *
+ * 자치구마다 통계연보 .xlsx의 분야 순서가 달라 file_sn 하드코딩은 광진구에서만 검증됨.
+ * (서울 자치구는 "기관>연도별통계연보>분야", 일부 광역시 자치구는 분야 순서·개수가 상이)
+ * fetchKosisExcel가 파싱한 파일 목록의 분야명(file_nm)을 이 패턴으로 매칭해
+ * file_sn을 자치구별로 동적 도출한다 — resolveFileSnByKeyword().
+ */
+const FILESN_BUNYA_PATTERN: Record<number, RegExp> = {
+  2: /인구|가구|세대/,         // Ⅲ.인구
+  3: /노동|사업체|고용|취업/,   // Ⅳ.노동·사업체
+  7: /주택|건설|주거/,         // Ⅷ.주택·건설
+  9: /보건|의료|위생/,         // Ⅹ.보건
+};
+
+/**
+ * 자치구 통계연보 파일 목록에서 키워드에 해당하는 file_sn 동적 도출
+ *
+ * DISTRICT_KEYWORD_TO_FILESN(광진구 기준 정적 매핑)으로 "어느 분야"인지 식별한 뒤,
+ * 실제 file_sn은 파일 목록의 분야명(file_nm)을 FILESN_BUNYA_PATTERN으로 매칭해 결정.
+ * 통계연보 분야 순서가 광진구와 다른 자치구에서도 정확한 분야 파일을 가리킨다.
+ *
+ * @returns 매칭된 file_sn. 키워드 미매핑·분야명 매칭 실패 시 null (xlsx 경로 포기 신호).
+ */
+export function resolveFileSnByKeyword(
+  files: { file_sn: number; file_nm: string }[],
+  keyword: string
+): number | null {
+  const staticSn = DISTRICT_KEYWORD_TO_FILESN[keyword];
+  if (staticSn === undefined) return null;
+  const pattern = FILESN_BUNYA_PATTERN[staticSn];
+  if (!pattern) return null;
+  const matched = files.find((f) => pattern.test(f.file_nm));
+  return matched ? matched.file_sn : null;
+}
 
 /**
  * 키워드 → 자치구 통계연보 markdown 행 매칭 정규식

@@ -204,6 +204,7 @@ export async function chainCompareRegions(input: ChainCompareRegionsInput) {
     period: string | null;
     success: boolean;
     note?: string | null;
+    sourceTableId: string | null;
   };
 
   const matrix: { region: string; cells: Cell[] }[] = await Promise.all(
@@ -226,6 +227,7 @@ export async function chainCompareRegions(input: ChainCompareRegionsInput) {
               period: r.period ?? null,
               success: r.success,
               note: r.note ?? null,
+              sourceTableId: r.source?.tableId ?? null,
             };
           } catch (e) {
             return {
@@ -237,6 +239,7 @@ export async function chainCompareRegions(input: ChainCompareRegionsInput) {
               period: null,
               success: false,
               note: e instanceof Error ? e.message : String(e),
+              sourceTableId: null,
             };
           }
         })
@@ -245,13 +248,26 @@ export async function chainCompareRegions(input: ChainCompareRegionsInput) {
     })
   );
 
-  // 지표별 최고/최저 및 순위
+  // 지표별 최고/최저 및 순위 + 소스 혼합(비교가능성) 감지
   const insights = keywords.map((kw) => {
-    const cells = matrix
-      .flatMap((m) => m.cells.filter((c) => c.keyword === kw && c.success && c.numericValue != null))
+    // 같은 지표인데 지역마다 다른 KOSIS 통계표에서 조회되면(자치구 OpenAPI·통계연보·
+    // 광역 fallback 혼재) 정의·기준시점이 달라 직접 비교가 부정확해진다 — 경고 부착.
+    const successCells = matrix.flatMap((m) =>
+      m.cells.filter((c) => c.keyword === kw && c.success)
+    );
+    const tableIds = new Set(
+      successCells.map((c) => c.sourceTableId).filter((t): t is string => !!t)
+    );
+    const comparabilityWarning =
+      tableIds.size > 1
+        ? `⚠️ '${kw}' 지표가 지역별로 서로 다른 KOSIS 통계표(${[...tableIds].join(', ')})에서 조회됨 — 정의·기준시점 상이로 직접 비교가 부정확할 수 있습니다.`
+        : null;
+
+    const cells = successCells
+      .filter((c) => c.numericValue != null)
       .sort((a, b) => (b.numericValue ?? 0) - (a.numericValue ?? 0));
     if (cells.length === 0) {
-      return { keyword: kw, ranking: [], note: '모든 지역 데이터 조회 실패' };
+      return { keyword: kw, ranking: [], note: '모든 지역 데이터 조회 실패', comparabilityWarning };
     }
     const ranking = cells.map((c, i) => ({
       rank: i + 1,
@@ -265,6 +281,7 @@ export async function chainCompareRegions(input: ChainCompareRegionsInput) {
       highest: ranking[0],
       lowest: ranking[ranking.length - 1],
       ranking,
+      comparabilityWarning,
     };
   });
 
@@ -282,6 +299,10 @@ export async function chainCompareRegions(input: ChainCompareRegionsInput) {
     ([region, note]) => ({ region, note })
   );
 
+  const comparabilityWarnings = insights
+    .map((i) => i.comparabilityWarning)
+    .filter((w): w is string => !!w);
+
   return {
     success: true,
     regions,
@@ -296,7 +317,9 @@ export async function chainCompareRegions(input: ChainCompareRegionsInput) {
           (i) =>
             `• ${i.keyword}: 최고 ${i.highest!.region}(${i.highest!.value}${i.highest!.unit ?? ''}), 최저 ${i.lowest!.region}(${i.lowest!.value}${i.lowest!.unit ?? ''})`
         )
-        .join('\n'),
+        .join('\n') +
+      (comparabilityWarnings.length > 0 ? `\n\n${comparabilityWarnings.join('\n')}` : ''),
+    ...(comparabilityWarnings.length > 0 ? { comparabilityWarnings } : {}),
     ...(fallbackNotes.length > 0 ? { fallbackNotes } : {}),
   };
 }

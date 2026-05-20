@@ -25,6 +25,7 @@ async function loadKordoc(): Promise<((ab: ArrayBuffer) => Promise<any>) | null>
   }
 }
 import { resolveDistrictFileTable } from '../utils/regions.js';
+import { resolveFileSnByKeyword } from '../data/districtFileMap.js';
 
 const KOSIS_HOST = 'https://stat.kosis.kr';
 const KOSIS_BASE = `${KOSIS_HOST}/nsibsHtmlSvc/fileView/FileStbl`;
@@ -94,7 +95,11 @@ export const fetchKosisExcelSchema = {
       .int()
       .min(1)
       .optional()
-      .describe('파일 일련번호 (1부터). listOnly=true 면 무시.'),
+      .describe('파일 일련번호 (1부터). listOnly=true 면 무시. keyword가 있으면 자동 도출돼 생략 가능.'),
+    keyword: z
+      .string()
+      .optional()
+      .describe('통계 키워드 (예: "인구", "고용률"). fileSn 미지정 시 파일 목록의 분야명과 매칭해 file_sn을 자치구별로 자동 도출.'),
     listOnly: z
       .boolean()
       .optional()
@@ -285,6 +290,7 @@ async function downloadFile(
 }
 
 export async function fetchKosisExcel(input: FetchKosisExcelInput): Promise<ExcelFetchResult> {
+  let effectiveFileSn = input.fileSn;
   try {
     // districtName 우선 — 자동 도출
     let orgId = input.orgId;
@@ -356,7 +362,23 @@ export async function fetchKosisExcel(input: FetchKosisExcelInput): Promise<Exce
     }
     const files = parseFileList(html);
 
-    if (input.listOnly || !input.fileSn) {
+    // fileSn 미지정 + keyword 주어지면 분야명 매칭으로 file_sn 동적 도출.
+    // 통계연보 분야 순서가 자치구마다 달라 정적 file_sn 하드코딩이 깨지는 것을 방지.
+    if (!effectiveFileSn && input.keyword && !input.listOnly) {
+      const resolved = resolveFileSnByKeyword(files, input.keyword);
+      if (resolved == null) {
+        return {
+          success: false,
+          orgId,
+          tblId,
+          files,
+          error: `통계연보 분야 매칭 실패: "${input.keyword}"에 해당하는 분야 파일을 ${input.districtName ?? `orgId=${orgId}`} 통계연보 ${files.length}개 파일에서 찾지 못했습니다 (자치구별 분야 구성 상이).`,
+        };
+      }
+      effectiveFileSn = resolved;
+    }
+
+    if (input.listOnly || !effectiveFileSn) {
       return {
         success: true,
         orgId,
@@ -366,13 +388,13 @@ export async function fetchKosisExcel(input: FetchKosisExcelInput): Promise<Exce
       };
     }
 
-    const fileMeta = files.find((f) => f.file_sn === input.fileSn);
+    const fileMeta = files.find((f) => f.file_sn === effectiveFileSn);
 
     // 2단계 — 다운로드 정보
-    const info = await fetchDownloadInfo(orgId, tblId, input.fileSn, cookie);
+    const info = await fetchDownloadInfo(orgId, tblId, effectiveFileSn, cookie);
 
     // 3단계 — 실제 파일
-    const ab = await downloadFile(orgId, tblId, input.fileSn, info, cookie);
+    const ab = await downloadFile(orgId, tblId, effectiveFileSn, info, cookie);
 
     // 매직바이트 확인 (xlsx = PK\x03\x04)
     const head = new Uint8Array(ab.slice(0, 4));
@@ -383,7 +405,7 @@ export async function fetchKosisExcel(input: FetchKosisExcelInput): Promise<Exce
         success: false,
         orgId,
         tblId,
-        fileSn: input.fileSn,
+        fileSn: effectiveFileSn,
         fileName: fileMeta?.file_nm ?? info.dwldFileNm,
         byteSize: ab.byteLength,
         error: `XLSX가 아닌 응답 (${ab.byteLength}B): ${snippet.slice(0, 300)}`,
@@ -397,7 +419,7 @@ export async function fetchKosisExcel(input: FetchKosisExcelInput): Promise<Exce
         success: false,
         orgId,
         tblId,
-        fileSn: input.fileSn,
+        fileSn: effectiveFileSn,
         fileName: fileMeta?.file_nm ?? info.dwldFileNm,
         byteSize: ab.byteLength,
         error: 'kordoc 모듈이 설치돼 있지 않습니다. 자치구 .xlsx 파일 파싱은 로컬 설치(pnpm install)에서만 지원됩니다. 원격 MCP에서는 search_statistics / get_statistics_data 사용.',
@@ -410,7 +432,7 @@ export async function fetchKosisExcel(input: FetchKosisExcelInput): Promise<Exce
         success: false,
         orgId,
         tblId,
-        fileSn: input.fileSn,
+        fileSn: effectiveFileSn,
         fileName: fileMeta?.file_nm ?? info.dwldFileNm,
         byteSize: ab.byteLength,
         error: `kordoc 파싱 실패: ${result.error ?? '알 수 없음'} (code=${result.code ?? '?'})`,
@@ -421,7 +443,7 @@ export async function fetchKosisExcel(input: FetchKosisExcelInput): Promise<Exce
       success: true,
       orgId,
       tblId,
-      fileSn: input.fileSn,
+      fileSn: effectiveFileSn,
       fileName: fileMeta?.file_nm ?? info.dwldFileNm,
       fileType: result.fileType,
       byteSize: ab.byteLength,
@@ -433,7 +455,7 @@ export async function fetchKosisExcel(input: FetchKosisExcelInput): Promise<Exce
       success: false,
       orgId: input.orgId ?? '',
       tblId: input.tblId ?? '',
-      fileSn: input.fileSn,
+      fileSn: effectiveFileSn,
       error: e instanceof Error ? e.message : String(e),
     };
   }

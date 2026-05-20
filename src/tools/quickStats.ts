@@ -256,106 +256,15 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
       requestedRegion = provFromQuery;
     }
 
-    // 2.5. 자치구 정밀 조회 (KOSIS 자치구 통계연보 .xlsx) — 자치구 + 매핑된 키워드 일 때 우선 시도
+    // 2.5. 자치구 OpenAPI 라우팅 (DISTRICT_OPENAPI_ROUTES 기반) — 자치구 정밀 조회 1순위
     //
-    // 매핑이 있고 fetchKosisExcel이 성공하면 광역 OpenAPI 호출 없이 자치구 정밀값으로 즉시 응답.
-    // 실패 시 districtNote에 사유 부착 후 광역 fallback으로 degrade (기존 흐름 유지).
-    //
-    // 안정성: P0-1로 fetchKosisExcel 3개 fetch에 retry/timeout 적용 (cold path 안전).
-    if (districtName && DISTRICT_KEYWORD_TO_FILESN[keyword] !== undefined) {
-      const fileSn = DISTRICT_KEYWORD_TO_FILESN[keyword];
-      try {
-        const excelResult = await fetchKosisExcel({
-          districtName,
-          fileSn,
-          year: input.year,
-          listOnly: false,
-        });
-
-        if (excelResult.success && excelResult.markdown) {
-          const yearMatch = excelResult.tblId.match(/FILE(\d{4})/);
-          const yearLabel = yearMatch?.[1] ?? (input.year ? String(input.year) : '');
-          const fileLabel = excelResult.fileName ?? `file_sn=${fileSn}`;
-          const sourceName = `${districtName} 통계연보 ${fileLabel}`;
-          const tableId = excelResult.tblId;
-          const periodLabel = yearLabel ? `${yearLabel}년` : '';
-
-          const { value, unit, highlightLines } = extractDistrictHighlight(
-            excelResult.markdown,
-            keyword
-          );
-
-          if (value) {
-            const unitLabel = (unit ?? param.unit ?? '').trim();
-            const formattedValue = value.includes(',')
-              ? value
-              : !Number.isNaN(parseFloat(value))
-                ? parseFloat(value).toLocaleString('ko-KR')
-                : value;
-            const suffix = getKoreanParticle(param.description);
-            const subject = periodLabel
-              ? `${periodLabel} ${districtName}의`
-              : `${districtName}의`;
-            const answer =
-              `${subject} ${param.description}${suffix} ${formattedValue}${unitLabel ? unitLabel : ''}입니다.` +
-              `\n\n📊 출처: ${sourceName} (KOSIS ${tableId})`;
-            return {
-              success: true,
-              answer,
-              value,
-              unit: unitLabel,
-              period: periodLabel || undefined,
-              source: { orgId: excelResult.orgId, tableId, tableName: sourceName },
-            };
-          }
-
-          // value 자동 추출 실패. DISTRICT_OPENAPI_ROUTES 매핑이 있으면 2.6 OpenAPI 라우팅으로 fall-through.
-          if (DISTRICT_OPENAPI_ROUTES[keyword]) {
-            districtNote =
-              `💡 ${districtName} 통계연보(.xlsx)에서 "${keyword}" 자동 추출 실패 → OpenAPI 라우팅으로 대체 조회.`;
-            // (return 없음 — try 블록 끝나면 2.6 분기로 자연 진행)
-          } else {
-            // 매핑 없으면 highlight markdown 첨부로 degrade (기존 흐름)
-            const highlightBlock =
-              highlightLines.length > 0
-                ? highlightLines.join('\n')
-                : excelResult.markdown.slice(0, 2500);
-            const subjectMd = periodLabel ? `${periodLabel} ${districtName}` : districtName;
-            const answer =
-              `${subjectMd} ${param.description} 통계연보를 조회했습니다 (자동 수치 추출 실패 → 원본 표 첨부).` +
-              `\n\n${highlightBlock}` +
-              `\n\n📊 출처: ${sourceName} (KOSIS ${tableId})`;
-            return {
-              success: true,
-              answer,
-              period: periodLabel || undefined,
-              source: { orgId: excelResult.orgId, tableId, tableName: sourceName },
-              note: `자동 value 추출 실패 — highlight pattern 보강 필요 (keyword="${keyword}").`,
-            };
-          }
-        }
-
-        // fetchKosisExcel 실패 — 광역 fallback으로 degrade. note에 사유 명시.
-        const reason = excelResult.error ? excelResult.error.slice(0, 200) : '알 수 없는 사유';
-        districtNote =
-          `⚠️ "${districtName}" 자치구 통계연보(.xlsx) 조회 실패: ${reason}` +
-          (requestedRegion ? ` → ${requestedRegion} 광역시도 데이터로 대체합니다.` : '');
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        districtNote =
-          `⚠️ "${districtName}" 자치구 통계연보 조회 예외: ${msg.slice(0, 150)}` +
-          (requestedRegion ? ` → ${requestedRegion} 광역시도 데이터로 대체합니다.` : '');
-      }
-    }
-
-    // 2.6. 자치구 OpenAPI 라우팅 (DISTRICT_OPENAPI_ROUTES 기반)
-    //
-    // 위 2.5에서 fetchKosisExcel이 실패했거나(.xlsx 미제공·PDF 형식 자치구),
-    // 또는 fileSn 매핑이 없어도 KOSIS 표준 OpenAPI + 자치구 행정코드(KSCD)로
-    // 자치구 단위 정밀 조회. 강남구(PDF), 해운대구(미제공), 수원시(시군구) 등 cover.
+    // KOSIS 표준 OpenAPI + 자치구 행정코드(KSCD)로 자치구 단위 정밀 조회.
+    // 표준 통계표는 전국 226개 시군구가 동일 구조(objL1=자치구코드)로 수록돼
+    // 자치구별 구조 차이 없이 일관적이고 다지역 비교가능성도 보장 — 통계연보(.xlsx)보다 우선.
+    // 강남구(PDF)·해운대구(미제공)·수원시(시군구) 등도 cover.
     //
     // 키워드별 (orgId, tblId, itmId, prdSe) 매핑은 districtFileMap.DISTRICT_OPENAPI_ROUTES.
-    // objL1(자치구 코드)는 테이블별로 다를 수 있어 (orgId, tblId)별 메타 캐시.
+    // route가 없는 키워드(임금·초혼연령 등)는 2.6 통계연보 .xlsx로 진행.
     const route = DISTRICT_OPENAPI_ROUTES[keyword];
     if (districtName && route) {
       try {
@@ -440,7 +349,8 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
             // KOSIS 데이터 누락("-"/공백)이면 다음 후보 코드 시도, 끝까지 없으면 광역 fallback
             if (rawValue && rawValue !== '-' && rawValue.trim() !== '') {
               const period = r.PRD_DE;
-              const periodLabel = formatPeriodWithType(period, route.prdSe);
+              // 라벨은 KOSIS 응답의 실제 주기(PRD_SE)로 — route.prdSe는 호출 힌트일 뿐.
+              const periodLabel = formatPeriodWithType(period, r.PRD_SE || route.prdSe);
               const numValue = parseFloat(rawValue);
               const formattedValue = Number.isNaN(numValue)
                 ? rawValue
@@ -465,13 +375,100 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
             }
           }
         }
-        // 후보 코드는 있었으나 전부 결측 — 광역 fallback degrade
+        // 후보 코드는 있었으나 전부 결측 — 2.6 통계연보·광역으로 degrade
         if (districtCodes.length > 0) {
           districtNote =
-            `💡 ${districtName} ${route.description} KOSIS 자치구 단위 데이터 미수록 — 광역시도 데이터로 대체합니다.`;
+            `💡 ${districtName} ${route.description}: KOSIS 자치구 단위 데이터 미수록.`;
         }
       } catch {
-        // OpenAPI 라우팅 실패 — 광역 fallback으로 degrade
+        // OpenAPI 라우팅 실패 — 2.6 통계연보·광역으로 degrade
+      }
+    }
+
+    // 2.6. 자치구 통계연보 .xlsx (KOSIS file 통계표) — OpenAPI route 미보유/조회 실패 시 보조
+    //
+    // 표준 OpenAPI에 없는 분야이거나 2.5가 자치구 데이터 미수록인 경우의 보조 경로.
+    // file_sn은 키워드→분야명 매칭으로 자치구별 동적 도출 (fetchKosisExcel keyword 인자) —
+    // 통계연보 분야 순서가 자치구마다 달라 정적 file_sn 하드코딩이 깨지는 것을 방지.
+    // 안정성: fetchKosisExcel 3개 fetch에 retry/timeout 적용 (cold path 안전).
+    if (districtName && DISTRICT_KEYWORD_TO_FILESN[keyword] !== undefined) {
+      try {
+        const excelResult = await fetchKosisExcel({
+          districtName,
+          keyword,
+          year: input.year,
+          listOnly: false,
+        });
+
+        if (excelResult.success && excelResult.markdown) {
+          const yearMatch = excelResult.tblId.match(/FILE(\d{4})/);
+          const yearLabel = yearMatch?.[1] ?? (input.year ? String(input.year) : '');
+          const fileLabel =
+            excelResult.fileName ??
+            (excelResult.fileSn ? `file_sn=${excelResult.fileSn}` : '');
+          const sourceName = `${districtName} 통계연보 ${fileLabel}`.trim();
+          const tableId = excelResult.tblId;
+          const periodLabel = yearLabel ? `${yearLabel}년` : '';
+
+          const { value, unit, highlightLines } = extractDistrictHighlight(
+            excelResult.markdown,
+            keyword
+          );
+
+          if (value) {
+            const unitLabel = (unit ?? param.unit ?? '').trim();
+            const formattedValue = value.includes(',')
+              ? value
+              : !Number.isNaN(parseFloat(value))
+                ? parseFloat(value).toLocaleString('ko-KR')
+                : value;
+            const suffix = getKoreanParticle(param.description);
+            const subject = periodLabel
+              ? `${periodLabel} ${districtName}의`
+              : `${districtName}의`;
+            const answer =
+              `${subject} ${param.description}${suffix} ${formattedValue}${unitLabel ? unitLabel : ''}입니다.` +
+              `\n\n📊 출처: ${sourceName} (KOSIS ${tableId})`;
+            return {
+              success: true,
+              answer,
+              value,
+              unit: unitLabel,
+              period: periodLabel || undefined,
+              source: { orgId: excelResult.orgId, tableId, tableName: sourceName },
+            };
+          }
+
+          // value 자동 추출 실패 — highlight markdown 첨부로 degrade.
+          // (OpenAPI route는 2.5에서 이미 시도했으므로 추가 fall-through 없음)
+          const highlightBlock =
+            highlightLines.length > 0
+              ? highlightLines.join('\n')
+              : excelResult.markdown.slice(0, 2500);
+          const subjectMd = periodLabel ? `${periodLabel} ${districtName}` : districtName;
+          const answer =
+            `${subjectMd} ${param.description} 통계연보를 조회했습니다 (자동 수치 추출 실패 → 원본 표 첨부).` +
+            `\n\n${highlightBlock}` +
+            `\n\n📊 출처: ${sourceName} (KOSIS ${tableId})`;
+          return {
+            success: true,
+            answer,
+            period: periodLabel || undefined,
+            source: { orgId: excelResult.orgId, tableId, tableName: sourceName },
+            note: `자동 value 추출 실패 — highlight pattern 보강 필요 (keyword="${keyword}").`,
+          };
+        }
+
+        // fetchKosisExcel 실패 — 광역 fallback으로 degrade. note에 사유 명시.
+        const reason = excelResult.error ? excelResult.error.slice(0, 200) : '알 수 없는 사유';
+        districtNote =
+          `⚠️ "${districtName}" 자치구 통계연보(.xlsx) 조회 실패: ${reason}` +
+          (requestedRegion ? ` → ${requestedRegion} 광역시도 데이터로 대체합니다.` : '');
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        districtNote =
+          `⚠️ "${districtName}" 자치구 통계연보 조회 예외: ${msg.slice(0, 150)}` +
+          (requestedRegion ? ` → ${requestedRegion} 광역시도 데이터로 대체합니다.` : '');
       }
     }
 
@@ -579,14 +576,28 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
     const unit = param.unit;
 
     // 5. 자연어 응답 생성
-    const baseAnswer = generateNaturalResponse({
-      keyword,
-      regionName,
-      value,
-      unit,
-      period: periodFormatted,
-      description: param.description,
-    });
+    // districtName이 있는데 여기까지 왔다 = 자치구 경로(2.5 OpenAPI·2.6 통계연보) 모두 실패.
+    // 광역시도 값을 자치구 값인 척 답하지 않는다 — 자치구 미수록을 문장 첫머리에 명시하고
+    // 광역값은 "참고값"으로만 격하한다 (README '자치구 데이터 무결성' 원칙).
+    let baseAnswer: string;
+    if (districtName) {
+      const formattedValue = value.includes(',') ? value : Number(value).toLocaleString();
+      const suffix = getKoreanParticle(param.description);
+      const refLabel =
+        regionName === '전국' ? '참고로 전국' : `참고로 상위 지역 ${regionName}의`;
+      baseAnswer =
+        `${districtName} 단위 ${param.description} 데이터는 KOSIS 자치구 통계에 수록돼 있지 않습니다. ` +
+        `${refLabel} ${param.description}${suffix} ${periodFormatted} 기준 ${formattedValue}${unit}입니다.`;
+    } else {
+      baseAnswer = generateNaturalResponse({
+        keyword,
+        regionName,
+        value,
+        unit,
+        period: periodFormatted,
+        description: param.description,
+      });
+    }
 
     // 장래추계 데이터 안내 (미래연도 데이터는 실측이 아님)
     const projectionNote = param.isProjection
@@ -700,8 +711,11 @@ function formatPeriod(period: string): string {
 
 /**
  * 기간 형식 포맷팅 (주기 타입 명시)
+ *
+ * periodType은 KOSIS 응답의 PRD_SE(수록주기)를 그대로 받는다 — 'Y'/'Q'/'M'/'S'(반기) 등.
+ * 반기('S')는 PRD_DE 끝 2자리 01=상반기, 02=하반기.
  */
-function formatPeriodWithType(period: string, periodType: 'Y' | 'Q' | 'M'): string {
+function formatPeriodWithType(period: string, periodType: string): string {
   if (period.length === 4) {
     return `${period}년`;
   } else if (period.length === 6) {
@@ -712,6 +726,8 @@ function formatPeriodWithType(period: string, periodType: 'Y' | 'Q' | 'M'): stri
       return `${year}년 ${num}분기`;
     } else if (periodType === 'M') {
       return `${year}년 ${num}월`;
+    } else if (periodType === 'S') {
+      return `${year}년 ${num === 1 ? '상' : '하'}반기`;
     }
   }
   return period;
