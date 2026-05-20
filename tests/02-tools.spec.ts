@@ -34,20 +34,25 @@ test.describe('MCP Tools 테스트', () => {
     }
   });
 
-  test('도구 목록 확인 - 7개 도구 존재', async ({ page }) => {
+  test('도구 목록 확인 - 12개 도구 존재', async ({ page }) => {
     // Tools 탭 클릭
     const toolsTab = page.locator('button:has-text("Tools")').first();
     await toolsTab.click();
 
-    // 각 도구가 표시되는지 확인 (get_table_info 추가됨)
+    // 실제 등록된 12개 도구 (server.ts 기준)
     const expectedTools = [
       'search_statistics',
       'get_statistics_list',
       'get_statistics_data',
       'compare_statistics',
       'analyze_time_series',
-      'get_recommended_stats',
       'get_table_info',
+      'quick_stats',
+      'quick_trend',
+      'fetch_kosis_excel',
+      'chain_region_brief',
+      'chain_compare_regions',
+      'chain_policy_indicator',
     ];
 
     for (const toolName of expectedTools) {

@@ -24,6 +24,7 @@ import {
   extractDistrictHighlight,
 } from '../data/districtFileMap.js';
 import { getDistrictKscdCandidatesFor } from '../utils/districtKosisCodes.js';
+import { parseKosisNumber } from '../utils/dataFormatter.js';
 
 /**
  * 자치구로 오판하면 안 되는 키워드 집합
@@ -285,20 +286,25 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
         );
 
         // 사용자 지정 year 처리 (후보와 무관)
+        // month/quarter 미지정 시 해당 연도 전체를 범위 조회하고 응답에서 최신
+        // 기간 행을 선택한다 — S(반기)·M(월)·Q(분기) 모두 연도만 줘도 year가 반영됨.
         let startPrd: string | undefined;
         let endPrd: string | undefined;
         if (input.year) {
+          const y = String(input.year);
           if (route.prdSe === 'Y') {
-            startPrd = String(input.year);
-            endPrd = String(input.year);
-          } else if (route.prdSe === 'M' && input.month) {
-            const m = `${input.year}${String(input.month).padStart(2, '0')}`;
-            startPrd = m;
-            endPrd = m;
-          } else if (route.prdSe === 'Q' && input.quarter) {
-            const q = `${input.year}${String(input.quarter).padStart(2, '0')}`;
-            startPrd = q;
-            endPrd = q;
+            startPrd = y;
+            endPrd = y;
+          } else if (route.prdSe === 'M') {
+            startPrd = input.month ? `${y}${String(input.month).padStart(2, '0')}` : `${y}01`;
+            endPrd = input.month ? `${y}${String(input.month).padStart(2, '0')}` : `${y}12`;
+          } else if (route.prdSe === 'Q') {
+            startPrd = input.quarter ? `${y}${String(input.quarter).padStart(2, '0')}` : `${y}01`;
+            endPrd = input.quarter ? `${y}${String(input.quarter).padStart(2, '0')}` : `${y}04`;
+          } else if (route.prdSe === 'S') {
+            // 반기 — PRD_DE 끝 2자리 01=상반기, 02=하반기
+            startPrd = `${y}01`;
+            endPrd = `${y}02`;
           }
         }
 
@@ -344,17 +350,16 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
             continue; // 이 후보 코드 조회 실패 — 다음 후보
           }
           if (rows.length > 0) {
-            const r = rows[0];
-            const rawValue = r.DT;
-            // KOSIS 데이터 누락("-"/공백)이면 다음 후보 코드 시도, 끝까지 없으면 광역 fallback
-            if (rawValue && rawValue !== '-' && rawValue.trim() !== '') {
+            // 범위 조회(연도만 지정한 S/M/Q)는 여러 행 — 결측 아닌 최신 기간 행 선택.
+            // 비수치·결측이면 다음 후보 코드 시도, 끝까지 없으면 광역 fallback.
+            const valid = rows.filter((x) => parseKosisNumber(x.DT) !== null);
+            if (valid.length > 0) {
+              const r = valid.reduce((a, b) => (a.PRD_DE >= b.PRD_DE ? a : b));
               const period = r.PRD_DE;
               // 라벨은 KOSIS 응답의 실제 주기(PRD_SE)로 — route.prdSe는 호출 힌트일 뿐.
               const periodLabel = formatPeriodWithType(period, r.PRD_SE || route.prdSe);
-              const numValue = parseFloat(rawValue);
-              const formattedValue = Number.isNaN(numValue)
-                ? rawValue
-                : numValue.toLocaleString('ko-KR');
+              const numValue = parseKosisNumber(r.DT)!;
+              const formattedValue = numValue.toLocaleString('ko-KR');
               const suffix = getKoreanParticle(route.description);
               const answer =
                 `${periodLabel} ${districtName}의 ${route.description}${suffix} ${formattedValue}${route.unit}입니다.` +
@@ -568,8 +573,17 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
       };
     }
 
-    // 6. 결과 파싱
-    const latestData = results[0];
+    // 6. 결과 파싱 — 결측 아닌 최신 기간 행 선택 (범위 조회 시 여러 행 대응).
+    //    비수치 값을 그대로 응답하면 Number()→NaN으로 깨지므로 사전 차단.
+    const validResults = results.filter((r) => parseKosisNumber(r.DT) !== null);
+    if (validResults.length === 0) {
+      return {
+        success: false,
+        answer: `"${input.query}"에 대한 수치 데이터를 찾을 수 없습니다 (조회 결과가 모두 결측).`,
+        note: `테이블: ${param.tableName} (${param.tableId})\n다른 연도로 시도하거나 search_statistics를 사용해보세요.`,
+      };
+    }
+    const latestData = validResults.reduce((a, b) => (a.PRD_DE >= b.PRD_DE ? a : b));
     const value = latestData.DT;
     const period = latestData.PRD_DE;
     const periodFormatted = formatPeriodWithType(period, requestedPeriod);

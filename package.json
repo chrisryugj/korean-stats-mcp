@@ -16,10 +16,11 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
-    "inspector": "npx @modelcontextprotocol/inspector dist/index.js",
-    "test": "playwright test",
-    "test:ui": "playwright test --ui",
-    "test:headed": "playwright test --headed",
+    "inspector": "tsc && npx @modelcontextprotocol/inspector dist/index.js",
+    "test": "tsc && playwright test",
+    "test:ui": "tsc && playwright test --ui",
+    "test:headed": "tsc && playwright test --headed",
+    "sim": "tsc && node scripts/simulate-realworld-100.mjs && node scripts/simulate-district-routing.mjs && node scripts/simulate-nationwide.mjs && node scripts/simulate-edge-cases.mjs && node scripts/simulate-chains.mjs",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write src/**/*.ts"
   },
@@ -36,7 +37,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "dotenv": "^16.4.5",
     "express": "^4.22.2",
     "kordoc": "^2.8.0",
@@ -56,5 +57,15 @@
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "pnpm": {
+    "comment": "보안 패치 강제 — 전부 transitive 의존성. ajv는 7+만 타겟(ESLint의 ajv 6 보존).",
+    "overrides": {
+      "path-to-regexp": "^8.4.0",
+      "fast-uri": "^3.1.2",
+      "ajv@>=7.0.0": "^8.18.0",
+      "qs": "^6.14.2",
+      "protobufjs": "^7.5.8"
+    }
   }
 }

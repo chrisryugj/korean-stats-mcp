@@ -12,7 +12,7 @@ import {
   getRegionCode,
 } from '../data/quickStatsParams.js';
 import { findProvinceByDistrict, PROVINCES, AMBIGUOUS_DISTRICTS } from '../utils/regions.js';
-import { analyzeTrend } from '../utils/dataFormatter.js';
+import { analyzeTrend, formatPeriod, parseKosisNumber } from '../utils/dataFormatter.js';
 import {
   extractKeyword,
   extractDistrictName,
@@ -27,18 +27,15 @@ const DISTRICT_PATTERN = /^[가-힣]{1,4}(구|군|시)$/;
  * 인식 패턴:
  *   - "지난/최근 N년", "N년 추세/추이" → N
  *   - "작년 대비", "전년 대비" → 2
- *   - "민선 N기" → N*4 (지방선거 임기 4년)
+ *   - "민선 N기" → 4 (단일 지방선거 임기 기간)
  *   - "임기 N년" → N
  *   - "취임 N년", "취임 N년차" → N+1 (취임 시점 포함)
  *   - "역대", "장기" → 20
  */
 export function extractYearCount(query: string): number | null {
-  // "민선 N기" → N*4
-  const minseon = query.match(/민선\s*(\d+)\s*기/);
-  if (minseon) {
-    const term = parseInt(minseon[1], 10);
-    if (term >= 1 && term <= 20) return Math.min(term * 4, 20);
-  }
+  // "민선 N기" → 단일 임기 4년.
+  // (민선 8기는 8번째 지방선거 임기 자체를 가리킴 — 1~8기 누적 32년이 아니다.)
+  if (/민선\s*\d+\s*기/.test(query)) return 4;
 
   // "지난/최근/근래/요즘 N년" or "N년 추세/추이/변화/대비"
   const nYears = query.match(/(?:지난|최근|근래|요즘)\s*(\d+)\s*년/) ||
@@ -77,7 +74,7 @@ export const quickTrendSchema = {
 ■ 자연어 자동 추출: keyword에 "광진구 인구 추이"처럼 통째 넣어도 추출됨
 ■ 자치구·시군 → 광역시도 fallback + 안내(자치구별은 fetch_kosis_excel 권장)
 ■ 별칭 자동 변환: 저출산→출산율, 고령화→고령인구, population 등
-■ 자연어 기간 자동 추출: "지난 5년", "민선 8기"(=32년→상한 20), "임기 4년차", "작년 대비"(=2), "역대"(=20)
+■ 자연어 기간 자동 추출: "지난 5년", "민선 N기"(=임기 4년), "임기 4년차", "작년 대비"(=2), "역대"(=20)
 ■ 장래추계 데이터(예: 노령화지수)는 isProjection=true + "추계" 안내 자동 부착`,
   inputSchema: z.object({
     keyword: z
@@ -238,6 +235,12 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
     // 우선순위: input.yearCount 명시 > 키워드 자연어 추출 > default 10
     const naturalYearCount = extractYearCount(trimmedKeyword);
     const yearCount = input.yearCount ?? naturalYearCount ?? 10;
+    // 주기 — 키워드의 supportedPeriods 첫 값. 'Y' 강제 시 월간 전용 지표
+    // (아파트가격·전세가격 등)에서 데이터 부족·조회 실패가 발생한다.
+    const periodType = param.supportedPeriods?.[0] ?? 'Y';
+    // yearCount(년)를 조회 주기 단위 개수로 환산 — 월간 10년 = 120개월.
+    const periodCount =
+      periodType === 'M' ? yearCount * 12 : periodType === 'Q' ? yearCount * 4 : yearCount;
     const results = await cache.getStatisticsData(
       {
         orgId: param.orgId,
@@ -245,8 +248,8 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
         objL1,
         objL2: param.objL2,
         itemId: param.itemId,
-        periodType: 'Y',
-        yearCount,
+        periodType,
+        yearCount: periodCount,
       },
       async () => {
         return client.getStatisticsData({
@@ -255,13 +258,25 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
           objL1,
           objL2: param.objL2,
           itmId: param.itemId,
-          prdSe: 'Y',
-          newEstPrdCnt: yearCount,
+          prdSe: periodType,
+          newEstPrdCnt: periodCount,
         });
       }
     );
 
-    if (results.length < 2) {
+    // 4. 데이터 정렬 및 분석 — 결측·비수치 행은 제외 (0으로 두면 추세·최고/최저 왜곡)
+    const sortedData = results
+      .map((r) => ({
+        year: r.PRD_DE,
+        value: parseKosisNumber(r.DT),
+        formatted: r.DT,
+      }))
+      .filter(
+        (d): d is { year: string; value: number; formatted: string } => d.value !== null
+      )
+      .sort((a, b) => a.year.localeCompare(b.year));
+
+    if (sortedData.length < 2) {
       return {
         success: false,
         keyword: extractedKw,
@@ -279,29 +294,21 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
       };
     }
 
-    // 4. 데이터 정렬 및 분석
-    const sortedData = results
-      .map((r) => ({
-        year: r.PRD_DE,
-        value: parseFloat(r.DT.replace(/,/g, '')) || 0,
-        formatted: r.DT,
-      }))
-      .sort((a, b) => a.year.localeCompare(b.year));
-
     const values = sortedData.map((d) => d.value);
     const { trend, avgGrowthRate, volatility } = analyzeTrend(values);
 
     // 5. 변화율 계산
     const dataPoints: TrendDataPoint[] = sortedData.map((d, i) => {
+      const labeled = { ...d, year: formatPeriod(d.year, periodType) };
       if (i === 0) {
-        return { ...d };
+        return labeled;
       }
       const prevValue = sortedData[i - 1].value;
       const changeRate = prevValue !== 0
         ? ((d.value - prevValue) / Math.abs(prevValue) * 100).toFixed(1)
         : '0';
       return {
-        ...d,
+        ...labeled,
         changeRate: `${parseFloat(changeRate) >= 0 ? '+' : ''}${changeRate}%`,
       };
     });
@@ -329,9 +336,9 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
     const trendEmoji = trend === 'increasing' ? '📈' : trend === 'decreasing' ? '📉' : '📊';
     insights.push(`${trendEmoji} **추세**: ${trendDescriptions[trend]}`);
     insights.push(`📊 **평균 변화율**: ${avgGrowthRate >= 0 ? '+' : ''}${avgGrowthRate.toFixed(1)}%/년`);
-    insights.push(`🔝 **최고점**: ${sortedData[maxIdx].year}년 (${sortedData[maxIdx].formatted}${param.unit})`);
-    insights.push(`🔻 **최저점**: ${sortedData[minIdx].year}년 (${sortedData[minIdx].formatted}${param.unit})`);
-    insights.push(`📅 **전체 변화**: ${sortedData[0].year}→${sortedData[sortedData.length - 1].year}년, ${parseFloat(totalChange) >= 0 ? '+' : ''}${totalChange}%`);
+    insights.push(`🔝 **최고점**: ${formatPeriod(sortedData[maxIdx].year, periodType)} (${sortedData[maxIdx].formatted}${param.unit})`);
+    insights.push(`🔻 **최저점**: ${formatPeriod(sortedData[minIdx].year, periodType)} (${sortedData[minIdx].formatted}${param.unit})`);
+    insights.push(`📅 **전체 변화**: ${formatPeriod(sortedData[0].year, periodType)}→${formatPeriod(sortedData[sortedData.length - 1].year, periodType)}, ${parseFloat(totalChange) >= 0 ? '+' : ''}${totalChange}%`);
 
     if (volatility > 20) {
       insights.push(`⚠️ **주의**: 변동성이 높습니다 (${volatility.toFixed(1)}%)`);
@@ -343,9 +350,10 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
       : null;
 
     // 10. 요약 생성
-    const summary = `${regionName}의 ${param.description} ${sortedData.length}년 추세: ${trendDescriptions[trend]}입니다. ` +
-      `${sortedData[0].year}년 ${sortedData[0].formatted}${param.unit}에서 ` +
-      `${sortedData[sortedData.length - 1].year}년 ${sortedData[sortedData.length - 1].formatted}${param.unit}로 ` +
+    const periodUnit = periodType === 'M' ? '개월' : periodType === 'Q' ? '개 분기' : '년';
+    const summary = `${regionName}의 ${param.description} ${sortedData.length}${periodUnit} 추세: ${trendDescriptions[trend]}입니다. ` +
+      `${formatPeriod(sortedData[0].year, periodType)} ${sortedData[0].formatted}${param.unit}에서 ` +
+      `${formatPeriod(sortedData[sortedData.length - 1].year, periodType)} ${sortedData[sortedData.length - 1].formatted}${param.unit}로 ` +
       `${parseFloat(totalChange) >= 0 ? '증가' : '감소'}했습니다 (${parseFloat(totalChange) >= 0 ? '+' : ''}${totalChange}%).\n\n` +
       `📊 출처: ${param.tableName} (KOSIS)` +
       (districtNote ? `\n\n${districtNote}` : '') +

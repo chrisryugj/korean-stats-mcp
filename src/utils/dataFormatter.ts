@@ -72,6 +72,20 @@ export function formatNumber(value: string): string {
 }
 
 /**
+ * KOSIS DT 값 → 숫자 파싱. 결측·비수치('-', '...', 'X', 공백 등)는 null 반환.
+ *
+ * `parseFloat(x) || 0` 패턴은 결측을 0으로 둬 추세·순위·최고/최저·변화율을
+ * 왜곡한다. 통계 계산 전 null 데이터포인트를 명시적으로 제외하기 위한 파서.
+ */
+export function parseKosisNumber(raw: string | null | undefined): number | null {
+  if (raw == null) return null;
+  const cleaned = String(raw).replace(/,/g, '').trim();
+  if (cleaned === '') return null;
+  const n = parseFloat(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
  * 변화율 계산
  */
 export function calculateChangeRate(

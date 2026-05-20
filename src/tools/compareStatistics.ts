@@ -6,7 +6,7 @@
 import { z } from 'zod';
 import { getKosisClient } from '../api/client.js';
 import { getCacheManager } from '../cache/index.js';
-import { calculateChangeRate } from '../utils/dataFormatter.js';
+import { calculateChangeRate, parseKosisNumber } from '../utils/dataFormatter.js';
 
 export const compareStatisticsSchema = {
   name: 'compare_statistics',
@@ -111,9 +111,22 @@ export async function compareStatistics(
       };
     }
 
+    // 결측·비수치 행 제외 — 0으로 두면 순위·최대/최소·변화율이 왜곡됨
+    const validResults = results.filter((r) => parseKosisNumber(r.DT) !== null);
+    if (validResults.length === 0) {
+      return {
+        success: true,
+        compareType: input.compareType,
+        items: [],
+        summary: '비교할 수치 데이터가 없습니다 (조회된 행이 모두 결측).',
+        insights: [],
+      };
+    }
+    const droppedCount = results.length - validResults.length;
+
     // 비교 항목 생성 (모든 관련 정보 포함)
-    const items: ComparisonItem[] = results.map((r) => {
-      const value = parseFloat(r.DT.replace(/,/g, '')) || 0;
+    const items: ComparisonItem[] = validResults.map((r) => {
+      const value = parseKosisNumber(r.DT)!;
       const region = r.C1_NM || undefined;
       const itemName = r.ITM_NM || undefined;
       const period = r.PRD_DE || undefined;
@@ -184,8 +197,14 @@ export async function compareStatistics(
         );
       }
     } else {
-      const diff = ((maxItem.value - minItem.value) / minItem.value * 100).toFixed(1);
+      const diff = minItem.value !== 0
+        ? ((maxItem.value - minItem.value) / Math.abs(minItem.value) * 100).toFixed(1)
+        : 'N/A';
       insights.push(`최대-최소 차이: ${diff}%`);
+    }
+
+    if (droppedCount > 0) {
+      insights.push(`ℹ️ 결측·비수치 ${droppedCount}건은 비교에서 제외했습니다.`);
     }
 
     return {

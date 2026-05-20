@@ -201,7 +201,7 @@ export function parseQuery(query: string): ParsedQuery {
             end: match[1],
           };
           break;
-        case 'this_year':
+        case 'this_year': {
           const thisYear = new Date().getFullYear().toString();
           result.timeRange = {
             type: 'specific',
@@ -209,7 +209,8 @@ export function parseQuery(query: string): ParsedQuery {
             end: thisYear,
           };
           break;
-        case 'last_year':
+        }
+        case 'last_year': {
           const lastYear = (new Date().getFullYear() - 1).toString();
           result.timeRange = {
             type: 'specific',
@@ -217,6 +218,7 @@ export function parseQuery(query: string): ParsedQuery {
             end: lastYear,
           };
           break;
+        }
         case 'year_range':
           result.timeRange = {
             type: 'range',

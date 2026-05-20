@@ -186,7 +186,41 @@ Claude Pro/Max/Team/Enterprise 요금제에서 동작합니다.
 
 ### 방법 2 — AI 데스크톱 앱 (설치 없음)
 
-Claude Desktop / Cursor / Windsurf 설정 파일에 추가합니다.
+Claude Desktop / Cursor / Windsurf에 원격 MCP 서버를 등록합니다.
+
+#### 원클릭 자동 설치 ⭐
+
+설치 스크립트가 클라이언트 설정 파일을 자동으로 찾아 `korean-stats` 항목을 등록합니다. 기존 설정은 백업(`*.bak.*`) 후 보존되고, 다른 MCP 서버 항목은 그대로 둡니다.
+
+**macOS / Linux** (`jq` 또는 `python3` 필요)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/chrisryugj/korean-stats-mcp/main/install.sh | bash
+```
+
+**Windows (PowerShell)**
+
+```powershell
+irm https://raw.githubusercontent.com/chrisryugj/korean-stats-mcp/main/install.ps1 | iex
+```
+
+기본값은 세 클라이언트 모두 등록(`all`)입니다. 특정 클라이언트만 설치하려면 `--client`(`claude`·`cursor`·`windsurf`·`all`) 옵션을 씁니다.
+
+```bash
+# macOS / Linux — Cursor만
+curl -fsSL https://raw.githubusercontent.com/chrisryugj/korean-stats-mcp/main/install.sh | bash -s -- --client cursor
+```
+
+```powershell
+# Windows — Cursor만
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chrisryugj/korean-stats-mcp/main/install.ps1))) -Client cursor
+```
+
+스크립트는 등록 전 원격 서버 헬스 체크를 수행합니다. 설치 후 해당 앱을 재시작하세요.
+
+#### 수동 등록
+
+설정 파일을 직접 편집해도 됩니다.
 
 | 앱 | 설정 파일 위치 |
 |----|---------------|
@@ -301,3 +335,11 @@ AI 앱 설정에 발급받은 키를 넣습니다.
 ## 라이선스
 
 [MIT](./LICENSE)
+
+---
+
+## 참고한 프로젝트
+
+- **[Dayoooun/korea-stats-mcp](https://github.com/Dayoooun/korea-stats-mcp)** — 이 프로젝트의 포크 시작점. 원본에 깊은 감사를 표합니다. 라이선스는 원본과 동일한 MIT.
+- **[kordoc](https://github.com/chrisryugj/kordoc)** — KOSIS 파일통계표(`.xlsx`)를 다운로드·파싱하는 엔진. `fetch_kosis_excel` 도구가 이 엔진을 사용합니다.
+- **[korean-law-mcp](https://github.com/chrisryugj/korean-law-mcp)** — HTTP 서버 안정화 패턴(rate-limit 버킷 정리, MCP 인스턴스 명시적 종료, SIGTERM graceful shutdown)을 v1.7.1에 적용했습니다.

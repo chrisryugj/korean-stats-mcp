@@ -15,6 +15,10 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 const BODY_LIMIT = process.env.MCP_BODY_LIMIT || '200kb';
 const RATE_LIMIT_RPM = parseInt(process.env.RATE_LIMIT_RPM || '60', 10);
 const TRUST_PROXY_RAW = process.env.TRUST_PROXY ?? '1';
+// 옵셔널 Bearer 토큰. 설정 시 /mcp POST에 인증 요구, 미설정 시 공개(하위호환).
+const AUTH_TOKEN = process.env.MCP_AUTH_TOKEN || '';
+// CORS 허용 origin. 기본 '*'. 신뢰 도메인만 허용하려면 명시적 origin 지정.
+const CORS_ORIGIN = process.env.MCP_CORS_ORIGIN || '*';
 
 function parseTrustProxy(v: string): boolean | number | string {
   if (v === 'true' || v === 'all') return true;
@@ -68,9 +72,9 @@ async function main() {
 
   // CORS
   app.use((req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Origin', CORS_ORIGIN);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, mcp-session-id');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, mcp-session-id, Authorization');
     res.setHeader('Cache-Control', 'no-store');
     if (req.method === 'OPTIONS') return res.status(200).end();
     next();
@@ -99,6 +103,19 @@ async function main() {
 
   // MCP endpoint (POST only — stateless)
   app.post('/mcp', async (req, res) => {
+    // 옵셔널 Bearer 인증 — MCP_AUTH_TOKEN 설정 시에만 검사 (미설정 시 공개).
+    // 공개 배포 시 KOSIS 키 쿼터 소진·프록시 악용 방지에 토큰 설정 권장.
+    if (AUTH_TOKEN) {
+      const auth = req.headers.authorization ?? '';
+      const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+      if (token !== AUTH_TOKEN) {
+        return res.status(401).json({
+          jsonrpc: '2.0',
+          error: { code: -32001, message: 'Unauthorized' },
+          id: null,
+        });
+      }
+    }
     let server: ReturnType<typeof createServer> | undefined;
     let transport: StreamableHTTPServerTransport | undefined;
     try {
@@ -148,6 +165,10 @@ async function main() {
 
   const httpServer = app.listen(PORT, () => {
     console.log(`[korean-stats-mcp] HTTP server listening on :${PORT}`);
+    console.log(
+      `[korean-stats-mcp] auth: ${AUTH_TOKEN ? 'enabled (Bearer)' : 'disabled (public)'} · ` +
+        `CORS origin: ${CORS_ORIGIN} · rate limit: ${RATE_LIMIT_RPM} rpm`
+    );
   });
 
   // Graceful shutdown — Fly.io 머신 재시작·배포 시 SIGTERM 전송.

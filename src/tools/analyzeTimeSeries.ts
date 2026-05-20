@@ -6,7 +6,7 @@
 import { z } from 'zod';
 import { getKosisClient } from '../api/client.js';
 import { getCacheManager } from '../cache/index.js';
-import { analyzeTrend, formatPeriod } from '../utils/dataFormatter.js';
+import { analyzeTrend, formatPeriod, parseKosisNumber } from '../utils/dataFormatter.js';
 
 export const analyzeTimeSeriesSchema = {
   name: 'analyze_time_series',
@@ -93,7 +93,19 @@ export async function analyzeTimeSeries(
       }
     );
 
-    if (results.length < 2) {
+    // 데이터 정리 (시간순 정렬) — 결측·비수치 행은 제외 (0 처리는 추세·최고/최저 왜곡)
+    const sortedData = results
+      .map((r) => ({
+        period: r.PRD_DE,
+        value: parseKosisNumber(r.DT),
+        formatted: r.DT,
+      }))
+      .filter(
+        (d): d is { period: string; value: number; formatted: string } => d.value !== null
+      )
+      .sort((a, b) => a.period.localeCompare(b.period));
+
+    if (sortedData.length < 2) {
       return {
         success: true,
         dataPoints: [],
@@ -107,15 +119,6 @@ export async function analyzeTimeSeries(
         ],
       };
     }
-
-    // 데이터 정리 (시간순 정렬)
-    const sortedData = results
-      .map((r) => ({
-        period: r.PRD_DE,
-        value: parseFloat(r.DT.replace(/,/g, '')) || 0,
-        formatted: r.DT,
-      }))
-      .sort((a, b) => a.period.localeCompare(b.period));
 
     const values = sortedData.map((d) => d.value);
     const { trend, avgGrowthRate, volatility } = analyzeTrend(values);
