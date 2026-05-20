@@ -4,7 +4,7 @@
 # Vercel 250MB 한도가 안 맞아 Fly.io 컨테이너로 배포.
 
 app = 'korean-stats-mcp'
-primary_region = 'sin'  # Singapore. icn(Seoul)은 일반 plan 미지원, nrt(Tokyo)는 KOSIS API에서 ECONNRESET.
+primary_region = 'nrt'  # Tokyo. icn(Seoul)은 일반 plan 미지원. nrt가 sin보다 KOSIS 레이턴시 ~50ms 빠름 (2026-05-20 양 리전 10회 비교 검증). cold-path ECONNRESET은 양 리전 공통 현상 — client.ts retry로 흡수.
 
 [build]
   dockerfile = 'Dockerfile'

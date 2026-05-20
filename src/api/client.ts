@@ -38,7 +38,7 @@ export class KosisClient {
   /**
    * API 요청 실행 (timeout 15s + 3회 재시도 + 지수 백오프)
    *
-   * - Fly Singapore → KOSIS Korea cold path 일시 abort 대응
+   * - Fly 해외 리전(nrt 등) → KOSIS Korea cold path 일시 abort 대응
    * - KOSIS 응답 에러(err/errMsg 필드)는 영구 실패 → 즉시 throw, retry 안 함
    * - HTTP 4xx도 영구 실패 → 즉시 throw
    * - 네트워크 오류·타임아웃·5xx만 retry (800ms / 1600ms 백오프)
