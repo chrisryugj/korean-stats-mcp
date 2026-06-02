@@ -33,7 +33,7 @@
 
 1. **Path A — 광역시도 기본통계 시리즈 (DT_2xx004_*)**: 서울처럼 광역시도 단위 기본통계 OpenAPI 시리즈가 있고, 그 안에 자치구가 ITM_NM으로 들어가 있을 가능성. **이게 동작하면 추가 코드 거의 불필요**.
 2. **Path B — 자치구 단독 file 통계표 (DT_5xx00x_FILE)**: 서울 자치구처럼 별개 orgId(`5xx`)로 file 통계표 존재. KOSIS 사이트에서 직접 탐색.
-3. **Path C — e-지방지표 (DT_1YL*, orgId=101)**: 통계청 e-지방지표 시리즈에 시군구 단위 데이터가 들어있음. 「학급당 학생수(시도/시/군/구)」(DT_1YL15001) 같은 패턴.
+3. **Path C — e-지방지표 (DT_1YL*, orgId=101)**: 국가데이터처 e-지방지표 시리즈에 시군구 단위 데이터가 들어있음. 「학급당 학생수(시도/시/군/구)」(DT_1YL15001) 같은 패턴.
 
 ---
 
@@ -80,7 +80,7 @@ https://kosis.kr/statisticsList/statisticsListIndex.do?menuId=M_01_02&vwcd=MT_OT
 ### 3. Path C 검증 — e-지방지표
 
 ```typescript
-// 모든 시군구가 ITM_NM에 들어있는 통계청 e-지방지표 시리즈
+// 모든 시군구가 ITM_NM에 들어있는 국가데이터처 e-지방지표 시리즈
 const r = await getStatisticsData({
   orgId: '101',
   tableId: 'DT_1YL15001',  // 학급당 학생수

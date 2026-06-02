@@ -78,28 +78,28 @@ const FALLBACK_TABLES: Record<string, Array<{
   VW_CD: string;
 }>> = {
   '인구': [
-    { ORG_ID: '101', ORG_NM: '통계청', TBL_ID: 'DT_1B04005', TBL_NM: '시도/성/연령별 주민등록인구', STAT_ID: 'DT_1B04005', STAT_NM: '주민등록인구현황', VW_CD: 'MT_ZTITLE' },
-    { ORG_ID: '101', ORG_NM: '통계청', TBL_ID: 'DT_1IN1503', TBL_NM: '주민등록인구현황(시군구)', STAT_ID: 'DT_1IN1503', STAT_NM: '주민등록인구현황', VW_CD: 'MT_ZTITLE' },
+    { ORG_ID: '101', ORG_NM: '국가데이터처', TBL_ID: 'DT_1B04005', TBL_NM: '시도/성/연령별 주민등록인구', STAT_ID: 'DT_1B04005', STAT_NM: '주민등록인구현황', VW_CD: 'MT_ZTITLE' },
+    { ORG_ID: '101', ORG_NM: '국가데이터처', TBL_ID: 'DT_1IN1503', TBL_NM: '주민등록인구현황(시군구)', STAT_ID: 'DT_1IN1503', STAT_NM: '주민등록인구현황', VW_CD: 'MT_ZTITLE' },
   ],
   '집값': [
     { ORG_ID: '116', ORG_NM: '한국부동산원', TBL_ID: 'DT_1YL21101', TBL_NM: '아파트 매매/전세 가격지수', STAT_ID: 'DT_1YL21101', STAT_NM: '부동산통계', VW_CD: 'MT_ZTITLE' },
     { ORG_ID: '116', ORG_NM: '한국부동산원', TBL_ID: 'DT_1YL20111E', TBL_NM: '주택매매가격지수', STAT_ID: 'DT_1YL20111E', STAT_NM: '부동산통계', VW_CD: 'MT_ZTITLE' },
   ],
   '실업률': [
-    { ORG_ID: '101', ORG_NM: '통계청', TBL_ID: 'DT_1DA7102S', TBL_NM: '성/연령별 실업률', STAT_ID: 'DT_1DA7102S', STAT_NM: '경제활동인구조사', VW_CD: 'MT_ZTITLE' },
-    { ORG_ID: '101', ORG_NM: '통계청', TBL_ID: 'DT_1DA7001', TBL_NM: '경제활동인구총괄', STAT_ID: 'DT_1DA7001', STAT_NM: '경제활동인구조사', VW_CD: 'MT_ZTITLE' },
+    { ORG_ID: '101', ORG_NM: '국가데이터처', TBL_ID: 'DT_1DA7102S', TBL_NM: '성/연령별 실업률', STAT_ID: 'DT_1DA7102S', STAT_NM: '경제활동인구조사', VW_CD: 'MT_ZTITLE' },
+    { ORG_ID: '101', ORG_NM: '국가데이터처', TBL_ID: 'DT_1DA7001', TBL_NM: '경제활동인구총괄', STAT_ID: 'DT_1DA7001', STAT_NM: '경제활동인구조사', VW_CD: 'MT_ZTITLE' },
   ],
   'GDP': [
     { ORG_ID: '301', ORG_NM: '한국은행', TBL_ID: 'DT_200Y001', TBL_NM: '국내총생산(GDP)', STAT_ID: 'DT_200Y001', STAT_NM: '국민계정', VW_CD: 'MT_OTITLE' },
     { ORG_ID: '301', ORG_NM: '한국은행', TBL_ID: 'DT_2AS004', TBL_NM: '경제성장률', STAT_ID: 'DT_2AS004', STAT_NM: '국민계정', VW_CD: 'MT_OTITLE' },
   ],
   '물가': [
-    { ORG_ID: '101', ORG_NM: '통계청', TBL_ID: 'DT_1J22001', TBL_NM: '소비자물가 등락률', STAT_ID: 'DT_1J22001', STAT_NM: '소비자물가조사', VW_CD: 'MT_ZTITLE' },
-    { ORG_ID: '101', ORG_NM: '통계청', TBL_ID: 'DT_1J20001', TBL_NM: '소비자물가지수', STAT_ID: 'DT_1J20001', STAT_NM: '소비자물가조사', VW_CD: 'MT_ZTITLE' },
+    { ORG_ID: '101', ORG_NM: '국가데이터처', TBL_ID: 'DT_1J22001', TBL_NM: '소비자물가 등락률', STAT_ID: 'DT_1J22001', STAT_NM: '소비자물가조사', VW_CD: 'MT_ZTITLE' },
+    { ORG_ID: '101', ORG_NM: '국가데이터처', TBL_ID: 'DT_1J20001', TBL_NM: '소비자물가지수', STAT_ID: 'DT_1J20001', STAT_NM: '소비자물가조사', VW_CD: 'MT_ZTITLE' },
   ],
   '출산율': [
-    { ORG_ID: '101', ORG_NM: '통계청', TBL_ID: 'DT_1B81A17', TBL_NM: '합계출산율', STAT_ID: 'DT_1B81A17', STAT_NM: '인구동향조사', VW_CD: 'MT_ZTITLE' },
-    { ORG_ID: '101', ORG_NM: '통계청', TBL_ID: 'DT_1B8000H', TBL_NM: '인구동태건수(출생/사망)', STAT_ID: 'DT_1B8000H', STAT_NM: '인구동향조사', VW_CD: 'MT_ZTITLE' },
+    { ORG_ID: '101', ORG_NM: '국가데이터처', TBL_ID: 'DT_1B81A17', TBL_NM: '합계출산율', STAT_ID: 'DT_1B81A17', STAT_NM: '인구동향조사', VW_CD: 'MT_ZTITLE' },
+    { ORG_ID: '101', ORG_NM: '국가데이터처', TBL_ID: 'DT_1B8000H', TBL_NM: '인구동태건수(출생/사망)', STAT_ID: 'DT_1B8000H', STAT_NM: '인구동향조사', VW_CD: 'MT_ZTITLE' },
   ],
 };
 
@@ -114,7 +114,7 @@ export const searchStatisticsSchema = {
     orgId: z
       .string()
       .optional()
-      .describe('기관코드 (선택, 예: 101=통계청)'),
+      .describe('기관코드 (선택, 예: 101=국가데이터처)'),
     sort: z
       .enum(['RANK', 'DATE'])
       .optional()

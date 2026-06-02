@@ -18,7 +18,7 @@ export interface QuickStatsParam {
   regionCodes?: Record<string, string>;
   // 지원하는 주기 (기본: ['Y'])
   supportedPeriods?: ('Y' | 'Q' | 'M')[];
-  // 통계청 장래추계 데이터를 포함하는 테이블 (미래연도 데이터 → 실측 아닌 추계)
+  // 국가데이터처 장래추계 데이터를 포함하는 테이블 (미래연도 데이터 → 실측 아닌 추계)
   isProjection?: boolean;
 }
 

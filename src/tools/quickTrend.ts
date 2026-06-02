@@ -346,7 +346,7 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
 
     // 9. 추계 데이터 안내 (장래추계 테이블이면 모든 데이터포인트가 미래연도)
     const projectionNote = param.isProjection
-      ? `⚠️ 본 시계열은 통계청 장래추계 데이터입니다 (실측 아닌 미래 추계). 정책·보고 인용 시 "추계" 명시 권장.`
+      ? `⚠️ 본 시계열은 국가데이터처 장래추계 데이터입니다 (실측 아닌 미래 추계). 정책·보고 인용 시 "추계" 명시 권장.`
       : null;
 
     // 10. 요약 생성

@@ -615,7 +615,7 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
 
     // 장래추계 데이터 안내 (미래연도 데이터는 실측이 아님)
     const projectionNote = param.isProjection
-      ? `⚠️ 본 수치는 통계청 장래추계 데이터입니다 (실측 아닌 미래 추계). 정책·보고 인용 시 "추계" 명시 권장.`
+      ? `⚠️ 본 수치는 국가데이터처 장래추계 데이터입니다 (실측 아닌 미래 추계). 정책·보고 인용 시 "추계" 명시 권장.`
       : null;
 
     // 출처 + 자치구 + 추계 안내 부착

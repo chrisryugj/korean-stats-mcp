@@ -65,7 +65,7 @@ export const fetchKosisExcelSchema = {
 • 비-서울 자치구는 file 통계표 대신 \`get_statistics_data\` 로 OpenAPI 경로 사용 권장:
   - Path A: 광역시도 기본통계 (orgId=202/203, regionName="해운대구"/"수성구")
   - Path B: 자치구 단독 OpenAPI (orgId=539, tblId=DT_53902_B001003 등)
-  - Path C: 통계청 e-지방지표 (orgId=101, DT_1YL*)
+  - Path C: 국가데이터처 e-지방지표 (orgId=101, DT_1YL*)
 
 언제 사용:
 • OpenAPI(get_statistics_data) 가 "통계표 없음" 에러를 내고, 해당 자치구가 서울 자치구일 때
@@ -355,7 +355,7 @@ export async function fetchKosisExcel(input: FetchKosisExcelInput): Promise<Exce
 대안 (OpenAPI 경로) — get_statistics_data 사용:
 • Path A — 광역시도 기본통계: 해당 광역시도(예: 부산=202, 대구=203)의 구·군별 표 (DT_202, DT_B40001 등)에 regionName 지정
 • Path B — 자치구 단독 OpenAPI: orgId=${orgId} tblId 시리즈 (DT_${orgId}xx_<chapter><nnnnnn> 형식)를 search_statistics 로 검색
-• Path C — 통계청 e-지방지표 (orgId=101, DT_1YL*) 에 regionName 지정
+• Path C — 국가데이터처 e-지방지표 (orgId=101, DT_1YL*) 에 regionName 지정
 
 자치구별 file 통계표 제공 확정 자치구: 서울 25개 자치구 일부 (광진구 505, 강남구 523 등)`,
       };

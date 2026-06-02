@@ -46,7 +46,7 @@ export interface DistrictOpenApiRoute {
   districtObjLevel?: 1 | 2;
   /** districtObjLevel=2일 때 objL1에 들어가는 고정값 (예: SBB=계=='0'). */
   extraObjL1?: string;
-  /** 통계청 장래추계 데이터 — 미래연도 실측 아닌 추계 안내 */
+  /** 국가데이터처 장래추계 데이터 — 미래연도 실측 아닌 추계 안내 */
   isProjection?: boolean;
 }
 
@@ -55,7 +55,7 @@ export const DISTRICT_OPENAPI_ROUTES: Record<string, DistrictOpenApiRoute> = {
   '인구': { orgId: '101', tblId: 'DT_1B040A3', itmId: 'T20', prdSe: 'M', objId: 'A', description: '주민등록 총인구', unit: '명' },
   '총인구': { orgId: '101', tblId: 'DT_1B040A3', itmId: 'T20', prdSe: 'M', objId: 'A', description: '주민등록 총인구', unit: '명' },
 
-  // ── 출생/출산 (DT_1B81A23, 통계청 인구동향) ─ OBJ_ID=A ──
+  // ── 출생/출산 (DT_1B81A23, 국가데이터처 인구동향) ─ OBJ_ID=A ──
   '출산율': { orgId: '101', tblId: 'DT_1B81A23', itmId: 'T2', prdSe: 'Y', objId: 'A', description: '합계출산율', unit: '명' },
   '합계출산율': { orgId: '101', tblId: 'DT_1B81A23', itmId: 'T2', prdSe: 'Y', objId: 'A', description: '합계출산율', unit: '명' },
   '출생아수': { orgId: '101', tblId: 'DT_1B81A23', itmId: 'T1', prdSe: 'Y', objId: 'A', description: '출생아수', unit: '명' },

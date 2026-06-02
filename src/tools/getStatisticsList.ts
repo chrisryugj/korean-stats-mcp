@@ -232,7 +232,7 @@ export async function getStatisticsList(
           orgId: table.orgId,
           orgName:
             table.orgId === '101'
-              ? '통계청'
+              ? '국가데이터처'
               : table.orgId === '301'
               ? '한국은행'
               : table.orgId === '116'
