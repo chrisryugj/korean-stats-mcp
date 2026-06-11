@@ -86,12 +86,16 @@ const OBJ_ID_CANDIDATES = ['A', 'B', 'SGG', 'region', 'C1', 'C2'] as const;
  */
 function hasDistrictEntries(idx: TableCodeIndex): boolean {
   if (idx.byProvinceName.size > 0) return true;
+  // '총인구'처럼 우연히 구/군/시로 끝나는 항목명 1~2개로는 자치구 그룹이 아님 —
+  // 실제 시군구 분류는 수백 행이므로 district 모양 이름이 10개 이상이어야 채택.
+  let count = 0;
   for (const name of idx.byItmName.keys()) {
     const last = name.split(/\s+/).pop() ?? name;
     if (!/^[가-힣]{1,4}(구|군|시)$/.test(last)) continue;
     // '서울특별시' 같은 광역시도 명칭 변형은 자치구 아님
     if (normalizeProvinceName(name) !== name || normalizeProvinceName(last) !== last) continue;
-    return true;
+    count++;
+    if (count >= 10) return true;
   }
   return false;
 }

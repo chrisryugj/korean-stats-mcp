@@ -120,7 +120,12 @@ export async function explainStatistic(input: ExplainStatisticInput): Promise<{
         .catch(() => [] as Record<string, string>[]),
     ]);
 
-    const explain = explainRows[0] as Record<string, string> | undefined;
+    // statisticsExplData.do는 필드 1~2개씩 담긴 partial 객체 "배열"을 반환 —
+    // 전 행을 병합해야 완전한 설명 객체가 된다 (첫 행만 읽으면 연락처만 남음)
+    const explain =
+      explainRows.length > 0
+        ? (Object.assign({}, ...(explainRows as Record<string, string>[])) as Record<string, string>)
+        : undefined;
     const tbl = tblMeta[0] as Record<string, string> | undefined;
     const prd = prdMeta as Record<string, string>[];
 
