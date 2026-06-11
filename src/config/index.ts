@@ -10,7 +10,8 @@ export const config = {
       statisticsData: '/statisticsData.do',
       parameterData: '/Param/statisticsParameterData.do',
       searchStatistics: '/statisticsSearch.do',
-      statsExplain: '/statsExplain.do',
+      // 통계설명 — KOSIS devGuide_0401 기준 정식 엔드포인트 (statsExplain.do는 HTML 반환·무효)
+      statsExplain: '/statisticsExplData.do',
     },
   },
 

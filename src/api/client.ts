@@ -96,6 +96,10 @@ export class KosisClient {
           if (data.result && Array.isArray(data.result)) {
             return data.result as T[];
           }
+          // 단일 객체 응답 (statisticsExplData.do 등) — [obj]로 정규화
+          if (data && typeof data === 'object' && Object.keys(data).length > 0) {
+            return [data as T];
+          }
           return [];
         }
 
@@ -195,17 +199,20 @@ export class KosisClient {
   }
 
   /**
-   * 통계설명 조회
+   * 통계설명 조회 (statisticsExplData.do)
+   *
+   * 응답은 camelCase 단일 객체(statsNm, writingPurps, examinPd, mainTermExpl 등) —
+   * request()가 단일 객체를 [obj]로 감싸 반환한다. metaItm=All 필수.
    */
   async getStatisticsExplain(
     orgId: string,
     tblId: string
   ): Promise<Record<string, string>[]> {
     return this.request(config.kosis.endpoints.statsExplain, {
-      method: 'getMeta',
-      type: 'TBL',
+      method: 'getList',
       orgId,
       tblId,
+      metaItm: 'All',
     });
   }
 

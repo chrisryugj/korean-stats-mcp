@@ -75,7 +75,26 @@ const loadingPromises = new Map<string, Promise<TableCodeIndex>>();
  * `loadDistrictCodesFor`는 명시된 objId의 모든 행 분류·자치구 매핑.
  * objId='auto'면 OBJ_ID 후보(A→SGG→region→C1)를 순회해서 자치구 행이 있는 첫 OBJ_ID 사용.
  */
-const OBJ_ID_CANDIDATES = ['A', 'SGG', 'region', 'C1', 'C2'] as const;
+const OBJ_ID_CANDIDATES = ['A', 'B', 'SGG', 'region', 'C1', 'C2'] as const;
+
+/**
+ * 자치구 인덱스로 쓸 수 있는 OBJ 그룹인지 검증 ('auto' 순회용).
+ *
+ * DT_1IN2030처럼 첫 OBJ가 '구분'(총인구/내국인)인 테이블에서 'auto'가
+ * 자치구 아닌 그룹을 잡으면 lookup이 전부 실패한다 — 그룹 안에
+ * 시군구 모양 이름(구/군/시로 끝나되 광역시도 변형 아님)이 있어야 채택.
+ */
+function hasDistrictEntries(idx: TableCodeIndex): boolean {
+  if (idx.byProvinceName.size > 0) return true;
+  for (const name of idx.byItmName.keys()) {
+    const last = name.split(/\s+/).pop() ?? name;
+    if (!/^[가-힣]{1,4}(구|군|시)$/.test(last)) continue;
+    // '서울특별시' 같은 광역시도 명칭 변형은 자치구 아님
+    if (normalizeProvinceName(name) !== name || normalizeProvinceName(last) !== last) continue;
+    return true;
+  }
+  return false;
+}
 
 /**
  * DT_1ES3A03_A01S·DT_1ES3A01S 도 시군 코드(4자리 3Xnn) 둘째 자리 → 광역시도 약칭.
@@ -167,10 +186,11 @@ async function loadDistrictCodesFor(
     let result: TableCodeIndex | null = null;
     for (const oid of tryOrder) {
       const idx = buildIndex(oid);
-      if (idx) {
-        result = idx;
-        break;
-      }
+      if (!idx) continue;
+      // 'auto'는 자치구 모양 항목이 있는 그룹만 채택 (구분·항목 그룹 오인 방지)
+      if (objIdHint === 'auto' && !hasDistrictEntries(idx)) continue;
+      result = idx;
+      break;
     }
     // 자치구 매핑 못 찾았으면 빈 인덱스
     const finalIdx: TableCodeIndex = result ?? {

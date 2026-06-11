@@ -42,17 +42,25 @@ export const explainStatisticSchema = {
 
 export type ExplainStatisticInput = z.infer<typeof explainStatisticSchema.inputSchema>;
 
-/** statsExplain 응답 필드 → 한국어 라벨 (KOSIS 필드명은 표마다 일부만 채워짐) */
+/**
+ * statisticsExplData.do 응답 필드(camelCase) → 한국어 라벨.
+ * KOSIS devGuide_0401 기준 — 표마다 일부만 채워짐.
+ */
 const EXPLAIN_FIELD_LABELS: Array<{ key: string; label: string }> = [
-  { key: 'STAT_NM', label: '통계조사명' },
-  { key: 'STAT_KIND', label: '통계종류' },
-  { key: 'WRIT_PURPS', label: '작성목적' },
-  { key: 'EXAMIN_PD', label: '조사주기' },
-  { key: 'EXAMIN_OBJRANGE', label: '조사대상범위' },
-  { key: 'STAT_PERIOD', label: '수록기간' },
-  { key: 'MAIN_TERM_EXPL', label: '주요 용어해설' },
-  { key: 'JOSA_NM', label: '담당부서' },
-  { key: 'CONTACT_DEPT_NM', label: '연락처' },
+  { key: 'statsNm', label: '통계조사명' },
+  { key: 'statsKind', label: '통계종류' },
+  { key: 'basisLaw', label: '법적 근거' },
+  { key: 'writingPurps', label: '작성목적' },
+  { key: 'examinPd', label: '조사주기' },
+  { key: 'examinObjrange', label: '조사대상범위' },
+  { key: 'examinObjArea', label: '조사대상지역' },
+  { key: 'josaUnit', label: '조사단위' },
+  { key: 'statsPeriod', label: '수록기간' },
+  { key: 'pubPeriod', label: '공표주기' },
+  { key: 'pubDate', label: '공표시기' },
+  { key: 'dataUserNote', label: '이용 시 유의사항' },
+  { key: 'mainTermExpl', label: '주요 용어해설' },
+  { key: 'writingTel', label: '작성기관 연락처' },
 ];
 
 function pick(row: Record<string, string> | undefined, key: string): string | null {
@@ -119,7 +127,7 @@ export async function explainStatistic(input: ExplainStatisticInput): Promise<{
     const tableName =
       pick(tbl, 'TBL_NM') ?? tableNameHint ?? tableId;
     const orgName = pick(tbl, 'ORG_NM') ?? (orgId === '101' ? '국가데이터처' : `기관 ${orgId}`);
-    const statName = pick(explain, 'STAT_NM');
+    const statName = pick(explain, 'statsNm');
 
     // 수록정보 — 주기별 수록기간 (PRD 메타: PRD_SE + PRD_DE 범위)
     const prdLines = prd

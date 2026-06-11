@@ -88,17 +88,22 @@ export interface SearchResultItem {
   QUERY?: string;        // 검색어명
 }
 
-// 통계설명 API 응답
+// 통계설명 API 응답 (statisticsExplData.do — camelCase, devGuide_0401)
 export interface StatisticsExplainItem {
-  STAT_ID: string;     // 통계조사ID
-  STAT_NM: string;     // 통계조사명
-  STAT_KIND: string;   // 통계종류
-  WRIT_PURPS: string;  // 작성목적
-  EXAMIN_PD: string;   // 조사주기
-  STAT_PERIOD: string; // 수록기간
-  MAIN_TERM_EXPL: string; // 주요용어해설
-  JOSA_NM: string;     // 담당부서
-  CONTACT_DEPT_NM: string; // 연락처
+  statsNm?: string;        // 통계조사명
+  statsKind?: string;      // 통계종류
+  basisLaw?: string;       // 법적 근거
+  writingPurps?: string;   // 작성목적
+  examinPd?: string;       // 조사주기
+  examinObjrange?: string; // 조사대상범위
+  examinObjArea?: string;  // 조사대상지역
+  josaUnit?: string;       // 조사단위
+  statsPeriod?: string;    // 수록기간
+  pubPeriod?: string;      // 공표주기
+  pubDate?: string;        // 공표시기
+  dataUserNote?: string;   // 이용 시 유의사항
+  mainTermExpl?: string;   // 주요용어해설
+  writingTel?: string;     // 작성기관 연락처
 }
 
 // API 요청 파라미터 타입
