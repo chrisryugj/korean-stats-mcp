@@ -198,6 +198,18 @@ export function normalizeProvinceName(name: string): string {
 }
 
 /**
+ * 광역시도 명칭 변형(현행 풀네임 + 구명칭 "전라북도"·"강원도" 등, 3자 이상) → 약칭.
+ * 자연어 질의 내 지역 추출용 — 약칭(2자)은 단어 경계 검사가 필요해 별도 처리.
+ * 긴 이름 우선 매칭이 안전하도록 길이 내림차순 정렬.
+ */
+export const PROVINCE_NAME_VARIANTS: Array<{ name: string; short: string }> = Object.entries(
+  PROVINCE_NAME_TO_SHORT
+)
+  .filter(([name]) => name.length >= 3)
+  .sort((a, b) => b[0].length - a[0].length)
+  .map(([name, short]) => ({ name, short }));
+
+/**
  * 광역시도 이름/별칭 → ProvinceInfo
  */
 export function findProvince(nameOrShort: string): ProvinceInfo | null {

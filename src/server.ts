@@ -4,7 +4,14 @@
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { createRequire } from 'node:module';
 import { z } from 'zod';
+
+// 버전 단일 출처 — package.json (server.ts·server-http.ts 하드코딩 drift 방지)
+const pkg = createRequire(import.meta.url)('../package.json') as { version: string };
+export const SERVER_VERSION: string = pkg.version;
+/** MCP 도구 수 — /health·루트 응답용. 도구 추가 시 server.tool 등록과 함께 갱신. */
+export const TOOL_COUNT = 14;
 
 // 도구 가져오기
 import {
@@ -24,6 +31,10 @@ import {
   quickStatsSchema,
   quickTrend,
   quickTrendSchema,
+  quickRank,
+  quickRankSchema,
+  explainStatistic,
+  explainStatisticSchema,
   fetchKosisExcel,
   fetchKosisExcelSchema,
   chainRegionBrief,
@@ -55,9 +66,9 @@ export function createServer(): McpServer {
 
   const server = new McpServer({
     name: 'korean-stats-mcp',
-    version: '1.7.1',
+    version: SERVER_VERSION,
     description:
-      '한국 국가데이터처 KOSIS OpenAPI 기반 MCP 서버 - 91개 키워드, 17 시도 + 자치구 230+ 라우팅, 시계열 추세, 3개 체인 도구(지역 브리핑·다지역 비교·정책 영역) — 공무원 업무 종합 통계 도우미. v1.7.1: 자치구 고용·인구동태 정밀 OpenAPI 라우팅 14종 통계표(인구·출산·고령·의사·주거·고용·실업·사망·혼인·이혼), 행정구역 통합 자치구(청주·창원) 코드 후보 순회, 전국 시군구 전수 라우팅.',
+      '한국 국가데이터처 KOSIS OpenAPI 기반 MCP 서버 - 92개 키워드, 17 시도 + 자치구 230+ 라우팅, 시계열 추세, 전국 순위(quick_rank), 출처 각주 생성(explain_statistic), 3개 체인 도구(지역 브리핑·다지역 비교·정책 영역) — 공무원 업무 종합 통계 도우미. v1.8.0: 지역명 미인식 시 전국값 대체 금지(에러 반환), 유사 지표 silent 치환 제거(청년실업률·연봉), 노령화지수 실측표(DT_1IN2030) 교체, 인구동향 잠정치 안내, 출처에 표 ID·자료수정일 포함.',
   });
 
   // ===== 도구 등록 =====
@@ -202,6 +213,32 @@ export function createServer(): McpServer {
             text: JSON.stringify(result, null, 2),
           },
         ],
+      };
+    }
+  );
+
+  // 9.5. 전국 순위 카드 — "우리 지역 몇 위?"
+  server.tool(
+    quickRankSchema.name,
+    quickRankSchema.description,
+    quickRankSchema.inputSchema.shape,
+    async (args) => {
+      const result = await quickRank(args as any);
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      };
+    }
+  );
+
+  // 9.6. 통계설명·인용 각주 생성기
+  server.tool(
+    explainStatisticSchema.name,
+    explainStatisticSchema.description,
+    explainStatisticSchema.inputSchema.shape,
+    async (args) => {
+      const result = await explainStatistic(args as any);
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
       };
     }
   );

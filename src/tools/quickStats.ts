@@ -12,11 +12,19 @@ import {
   QUICK_STATS_PARAMS,
   KEYWORD_ALIASES,
   KEYWORD_LOOKUP,
+  MISLEADING_KEYWORD_HINTS,
+  VITAL_STATS_TABLE_IDS,
   getQuickStatsParam,
   getRegionCode,
   normalizeKeywordKey,
 } from '../data/quickStatsParams.js';
-import { findProvinceByDistrict, PROVINCES, AMBIGUOUS_DISTRICTS } from '../utils/regions.js';
+import {
+  findProvinceByDistrict,
+  normalizeProvinceName,
+  PROVINCES,
+  PROVINCE_NAME_VARIANTS,
+  AMBIGUOUS_DISTRICTS,
+} from '../utils/regions.js';
 import { fetchKosisExcel } from './fetchKosisExcel.js';
 import {
   DISTRICT_KEYWORD_TO_FILESN,
@@ -55,11 +63,11 @@ export const quickStatsSchema = {
   inputSchema: z.object({
     query: z
       .string()
-      .describe('통계 키워드만 입력 (감소/증가/추세/현황 등 수식어 제외). 예: "인구", "실업률", "GDP", "출산율", "고령인구"'),
+      .describe('통계 키워드 또는 자연어 질문. 예: "인구", "실업률", "서울 인구". 추세/증감 등 시계열 수식어는 quick_trend 사용.'),
     region: z
       .string()
       .optional()
-      .describe('지역명. 예: "서울", "부산", "경기". 질문에 지역이 있으면 추출. "서울 인구" → region: "서울"'),
+      .describe('지역명 — 17개 광역시도 약칭(서울/부산/…/제주) 또는 풀네임(전라북도 등), 자치구·시군(광진구/수원시)도 가능. 미인식 지역명은 에러 반환(전국값 대체 안 함). 전국은 생략.'),
     year: z
       .number()
       .optional()
@@ -95,6 +103,10 @@ interface QuickStatsResult {
     orgId: string;
     tableId: string;
     tableName: string;
+    /** KOSIS 자료 최종수정일 (LST_CHN_DE) — 공문서 인용용 */
+    lastUpdated?: string;
+    /** 조회(추출) 시점 ISO 날짜 — 공문서 인용용 */
+    retrievedAt?: string;
   };
   isProjection?: boolean;
   note?: string;
@@ -119,11 +131,10 @@ const PROVINCE_FULL_NAMES = PROVINCES.map((p) => p.fullName);
 export function extractProvinceName(query: string, districtDetected: boolean): string | null {
   if (districtDetected) return null;
 
-  // 풀네임 우선
-  for (const name of PROVINCE_FULL_NAMES) {
+  // 풀네임 우선 — 현행 명칭 + 구명칭("전라북도"·"강원도" 등) 변형 포함, 긴 이름부터
+  for (const { name, short } of PROVINCE_NAME_VARIANTS) {
     if (query.includes(name)) {
-      const idx = PROVINCE_FULL_NAMES.indexOf(name);
-      return PROVINCE_SHORT_NAMES[idx];
+      return short;
     }
   }
 
@@ -208,16 +219,23 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
 💡 지역별: "서울 실업률", "부산 인구" (17개 시도)
 💡 월별: "2024년 10월 출생아수" (일부 키워드)`.trim();
 
+      // 유사하지만 정의가 다른 지표(청년실업률·연봉·가계소득 등) — 오답 대신 안내
+      const normQ = normalizeKeywordKey(trimmedQuery);
+      const misleadingHint = MISLEADING_KEYWORD_HINTS.find((h) => h.pattern.test(normQ))?.hint;
+
       return {
         success: false,
         answer: `"${input.query}"에 대한 빠른 조회가 지원되지 않습니다.`,
-        note: `${keywordGuide}\n\n🔍 다른 통계는 search_statistics("${input.query}")로 검색해보세요.`,
+        note:
+          (misleadingHint ? `${misleadingHint}\n\n` : '') +
+          `${keywordGuide}\n\n🔍 다른 통계는 search_statistics("${input.query}")로 검색해보세요.`,
       };
     }
 
     // 2. 지역 결정
     let regionName = '전국';
     let objL1 = param.objL1;
+    let objL2 = param.objL2;
     let requestedRegion: string | null = null;
     let districtNote: string | null = null;
 
@@ -487,9 +505,24 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
         };
       }
       const regionCode = getRegionCode(param, requestedRegion);
-      if (regionCode !== param.objL1) {
-        objL1 = regionCode;
-        regionName = requestedRegion;
+      if (regionCode === null) {
+        // 지역명 미인식 — 전국값을 그 지역값처럼 반환하지 않는다 (silent fallback 금지)
+        return {
+          success: false,
+          answer: `"${requestedRegion}" 지역명을 인식하지 못해 조회를 중단했습니다.`,
+          note:
+            `지원 지역: 17개 광역시도 — 약칭(서울/부산/대구/인천/광주/대전/울산/세종/경기/강원/충북/충남/전북/전남/경북/경남/제주) 또는 풀네임(전라북도, 강원특별자치도 등). ` +
+            `자치구·시군(예: "광진구", "수원시")은 자동 라우팅됩니다. 전국값은 region 생략.`,
+        };
+      }
+      const normalizedRegion = normalizeProvinceName(requestedRegion);
+      if (normalizedRegion !== '전국') {
+        if (param.regionObjLevel === 2) {
+          objL2 = regionCode;
+        } else {
+          objL1 = regionCode;
+        }
+        regionName = normalizedRegion;
       }
     }
 
@@ -542,7 +575,7 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
         orgId: param.orgId,
         tableId: param.tableId,
         objL1,
-        objL2: param.objL2,
+        objL2,
         itemId: param.itemId,
         periodType: requestedPeriod,
         recentCount: startPrd ? undefined : 1,
@@ -555,7 +588,7 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
           orgId: param.orgId,
           tblId: param.tableId,
           objL1,
-          objL2: param.objL2,
+          objL2,
           itmId: param.itemId,
           prdSe: requestedPeriod,
           newEstPrdCnt: startPrd ? undefined : 1,
@@ -618,11 +651,19 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
       ? `⚠️ 본 수치는 국가데이터처 장래추계 데이터입니다 (실측 아닌 미래 추계). 정책·보고 인용 시 "추계" 명시 권장.`
       : null;
 
-    // 출처 + 자치구 + 추계 안내 부착
-    const noteSuffix = [districtNote, projectionNote].filter(Boolean).join('\n\n');
-    const answer = `${baseAnswer}\n\n📊 출처: ${param.tableName} (KOSIS)${noteSuffix ? `\n\n${noteSuffix}` : ''}`;
+    // 인구동향(출생·사망·혼인·이혼) 최근 시점은 잠정치 가능 — 확정치는 익년 공표
+    const provisionalNote =
+      VITAL_STATS_TABLE_IDS.has(param.tableId) && isWithinMonths(period, 24)
+        ? `⚠️ 인구동향조사 최근 시점 수치는 잠정치일 수 있습니다 (확정치는 익년 공표). 공식 인용 시 "잠정" 여부 확인 권장.`
+        : null;
 
-    const combinedNote = [districtNote, projectionNote].filter(Boolean).join(' / ');
+    // 출처 + 자치구 + 추계 안내 부착 — 표 ID 포함 (자치구 경로와 인용 형식 통일)
+    const noteSuffix = [districtNote, projectionNote, provisionalNote].filter(Boolean).join('\n\n');
+    const answer = `${baseAnswer}\n\n📊 출처: ${param.tableName} (KOSIS ${param.tableId})${noteSuffix ? `\n\n${noteSuffix}` : ''}`;
+
+    const combinedNote = [districtNote, projectionNote, provisionalNote]
+      .filter(Boolean)
+      .join(' / ');
 
     return {
       success: true,
@@ -634,6 +675,8 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
         orgId: param.orgId,
         tableId: param.tableId,
         tableName: param.tableName,
+        ...(latestData.LST_CHN_DE ? { lastUpdated: latestData.LST_CHN_DE } : {}),
+        retrievedAt: new Date().toISOString().slice(0, 10),
       },
       ...(param.isProjection ? { isProjection: true } : {}),
       ...(combinedNote ? { note: combinedNote } : {}),
@@ -681,14 +724,43 @@ const SORTED_NORM_KEYS = Array.from(KEYWORD_LOOKUP.keys())
   .filter((k) => k.length >= 2)
   .sort((a, b) => b.length - a.length);
 
+/**
+ * 키워드 매칭 위치 앞이 "지역명·시점·전국 표현"으로 끝나는지 검사.
+ *
+ * substring 매칭의 오답 방지: "다문화인구"·"유소년인구"·"청년실업률"처럼
+ * 한글 수식어가 직접 붙은 복합어는 별개 지표인데, '인구'·'실업률'에 부분 매칭되어
+ * 주민등록 총인구·전체 실업률을 그 질문의 답처럼 반환하던 P0 버그 차단.
+ * 지역명("서울인구")·시점("2024년인구")·조사("서울의인구")·전국 표현 뒤는 정상 질의로 허용.
+ */
+function isAllowedKeywordPrefix(prefix: string): boolean {
+  if (!prefix) return true;
+  // 조사 '의'는 제거 후 판정 ("서울의인구")
+  const p = prefix.endsWith('의') ? prefix.slice(0, -1) : prefix;
+  if (!p) return true;
+  const last = p[p.length - 1];
+  if (!/[가-힣]/.test(last)) return true; // 숫자·영문·기호 뒤는 허용
+  if (/(시|도|구|군|읍|면|동|월|분기)$/.test(p)) return true; // 지역·시점 접미
+  // '년'은 숫자·작년류 시점 표현만 허용 — '유소년'·'청년' 같은 수식어는 차단
+  if (/(\d년|작년|전년|금년|올해)$/.test(p)) return true;
+  if (/(전국|한국|대한민국|우리나라|국내)$/.test(p)) return true;
+  for (const name of PROVINCE_SHORT_NAMES) {
+    if (p.endsWith(name)) return true;
+  }
+  return false; // 한글 수식어 직접 결합 — 다른 지표일 가능성, 매칭 거부
+}
+
 export function extractKeyword(query: string): string {
   if (!query) return query;
   const normQuery = normalizeKeywordKey(query);
   if (!normQuery) return query;
 
   for (const nk of SORTED_NORM_KEYS) {
-    if (normQuery.includes(nk)) {
-      return KEYWORD_LOOKUP.get(nk)!;
+    let idx = normQuery.indexOf(nk);
+    while (idx !== -1) {
+      if (isAllowedKeywordPrefix(normQuery.slice(0, idx))) {
+        return KEYWORD_LOOKUP.get(nk)!;
+      }
+      idx = normQuery.indexOf(nk, idx + 1);
     }
   }
 
@@ -696,31 +768,16 @@ export function extractKeyword(query: string): string {
 }
 
 /**
- * 기간 형식 포맷팅 (년/분기/월 지원)
+ * PRD_DE 시점이 현재로부터 N개월 이내인지 (잠정치 안내 판정용)
+ * period: "2025"(연) 또는 "202505"(월·분기·반기)
  */
-function formatPeriod(period: string): string {
-  if (period.length === 4) {
-    // 연간: "2024" → "2024년"
-    return `${period}년`;
-  } else if (period.length === 6) {
-    const year = period.slice(0, 4);
-    const suffix = period.slice(4);
-    const num = parseInt(suffix, 10);
-
-    // 분기인지 월인지 구분 (01~04는 분기일 수도, 01~12는 월)
-    // KOSIS API는 분기를 01, 02, 03, 04로, 월을 01~12로 표현
-    // 구분을 위해 값의 범위로 판단 (5 이상이면 월)
-    if (num >= 5 && num <= 12) {
-      // 월간: "202410" → "2024년 10월"
-      return `${year}년 ${num}월`;
-    } else if (num >= 1 && num <= 4) {
-      // 분기: "202401" → "2024년 1분기" (단, 월일 수도 있음)
-      // 이 경우 호출 컨텍스트에서 판단해야 함
-      // 기본적으로 월로 처리 (1~4월)
-      return `${year}년 ${num}월`;
-    }
-  }
-  return period;
+function isWithinMonths(period: string, months: number): boolean {
+  const year = parseInt(period.slice(0, 4), 10);
+  if (!Number.isFinite(year)) return false;
+  const month = period.length >= 6 ? parseInt(period.slice(4, 6), 10) || 12 : 12;
+  const now = new Date();
+  const monthsAgo = (now.getFullYear() - year) * 12 + (now.getMonth() + 1 - month);
+  return monthsAgo <= months;
 }
 
 /**

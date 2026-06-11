@@ -4,6 +4,8 @@
  * - 동적 조회 대신 미리 검증된 파라미터 사용
  */
 
+import { normalizeProvinceName } from '../utils/regions.js';
+
 export interface QuickStatsParam {
   orgId: string;
   tableId: string;
@@ -16,11 +18,23 @@ export interface QuickStatsParam {
   unit: string;         // 단위
   // 지역별 코드 매핑 (선택)
   regionCodes?: Record<string, string>;
+  /**
+   * 지역 코드가 들어가는 objLevel. 기본 1 — objL1=지역코드.
+   * 일부 테이블(예: DT_1IN2030 — OBJ 순서가 구분→행정구역)은 지역이 objL2.
+   * 2로 지정 시 objL1은 param.objL1(고정값) 유지, objL2에 지역코드.
+   */
+  regionObjLevel?: 1 | 2;
   // 지원하는 주기 (기본: ['Y'])
   supportedPeriods?: ('Y' | 'Q' | 'M')[];
   // 국가데이터처 장래추계 데이터를 포함하는 테이블 (미래연도 데이터 → 실측 아닌 추계)
   isProjection?: boolean;
 }
+
+/**
+ * 인구동향조사 계열 테이블 — 최근 시점 수치는 잠정치일 수 있음 (익년 확정 공표).
+ * quickStats/quickTrend가 최근 24개월 내 시점 응답에 잠정치 안내를 부착.
+ */
+export const VITAL_STATS_TABLE_IDS = new Set(['DT_1B8000G', 'DT_1B81A17']);
 
 // ===== 공통 지역 코드 상수 =====
 // 테이블마다 지역 코드 체계가 다를 수 있음
@@ -1067,28 +1081,34 @@ export const QUICK_STATS_PARAMS: Record<string, QuickStatsParam> = {
   },
 
   // ===== 노령화지수 관련 =====
-  // DT_1YL12501E: 노령화지수(시도) - 장래추계 데이터 (2033~2052, 미래연도)
+  // DT_1IN2030: 주요 인구지표(부양비·노령화지수·중위연령 등) - 시군구, 인구총조사 실측 2015~2024.
+  // (구버전 DT_1YL12501E는 2033~2052 장래추계 전용 — "현재 노령화지수" 질문에 2052년
+  //  추계치가 최신값으로 응답되는 라우팅 오류가 있어 실측표로 교체. 2026-06 라이브 검증:
+  //  전국 2024=186.7, 서울 2024=222, 광진구 2024=241.6)
+  // OBJ 순서: objL1=구분(01=총인구), objL2=행정구역(00=전국, 2자리=시도, 5자리=시군구).
   '노령화지수': {
     orgId: '101',
-    tableId: 'DT_1YL12501E',
-    tableName: '노령화지수(시도)',
-    description: '노령화지수 (65세이상/15세미만*100, 장래추계)',
-    objL1: '00',          // 전국
-    itemId: 'T10',        // 노령화지수
+    tableId: 'DT_1IN2030',
+    tableName: '주요 인구지표(부양비, 노령화지수, 중위연령 등) - 시군구',
+    description: '노령화지수 (유소년인구 100명당 65세 이상 인구)',
+    objL1: '01',          // 구분: 총인구
+    objL2: '00',          // 행정구역: 전국
+    itemId: 'T4',         // 노령화지수
     unit: '',
     regionCodes: REGION_CODES_DEMOGRAPHIC,
-    isProjection: true,
+    regionObjLevel: 2,
   },
   '고령화지수': {
     orgId: '101',
-    tableId: 'DT_1YL12501E',
-    tableName: '노령화지수(시도)',
-    description: '노령화지수 (65세이상/15세미만*100, 장래추계)',
-    objL1: '00',
-    itemId: 'T10',
+    tableId: 'DT_1IN2030',
+    tableName: '주요 인구지표(부양비, 노령화지수, 중위연령 등) - 시군구',
+    description: '노령화지수 (유소년인구 100명당 65세 이상 인구)',
+    objL1: '01',
+    objL2: '00',
+    itemId: 'T4',
     unit: '',
     regionCodes: REGION_CODES_DEMOGRAPHIC,
-    isProjection: true,
+    regionObjLevel: 2,
   },
 
   // ===== 고령인구 관련 =====
@@ -1121,6 +1141,18 @@ export const QUICK_STATS_PARAMS: Record<string, QuickStatsParam> = {
     objL1: '00',
     itemId: 'T001',
     unit: '명',
+    regionCodes: REGION_CODES_DEMOGRAPHIC,
+  },
+  // 고령인구비율 ≠ 노령화지수 — 비율=(65+/전체)×100, 노령화지수=(65+/0~14세)×100.
+  // 같은 표 DT_1YL20631의 T10이 비율. 노령화지수 질문에 비율을 답하지 않도록 키워드 분리.
+  '고령인구비율': {
+    orgId: '101',
+    tableId: 'DT_1YL20631',
+    tableName: '고령인구비율(시도/시/군/구)',
+    description: '고령인구비율 (전체 인구 중 65세 이상 비중)',
+    objL1: '00',
+    itemId: 'T10',
+    unit: '%',
     regionCodes: REGION_CODES_DEMOGRAPHIC,
   },
 
@@ -1218,18 +1250,16 @@ export const KEYWORD_ALIASES: Record<string, string> = {
   '실버': '고령인구',
   '65세이상': '고령인구',
   // 일자리/임금
+  // 주의: 정의가 다른 지표로의 silent 치환 금지 —
+  //   '청년실업(률)'(15~29세 별도 통계)→'실업률'(전체), '연봉/소득'(가계소득·연 기준)→'월급'(월 임금)
+  //   류의 매핑은 의회답변·보고서 인용 사고로 직결되므로 제거. MISLEADING_KEYWORD_HINTS 참조.
   '취업': '취업자수',
   '취업률': '고용률',
-  '청년실업': '실업률',
-  '청년실업률': '실업률',
   '실엄': '실업률',
   '월소득': '월급',
   '월수입': '월급',
-  '연봉': '월급',
-  '연소득': '월급',
   '봉급': '월급',
   '급여': '월급',
-  '소득': '월급',
   // 경제
   '국민총생산': 'GDP',
   '국내총생산': 'GDP',
@@ -1388,11 +1418,36 @@ export function getQuickStatsParam(keyword: string): QuickStatsParam | undefined
 }
 
 /**
- * 지역 코드 조회
+ * 유사하지만 정의가 다른 지표 — 매핑 대신 안내가 필요한 키워드.
+ * 키워드 미매칭 시 quickStats/quickTrend가 normalizeKeywordKey(query) 부분일치로 안내 부착.
  */
-export function getRegionCode(param: QuickStatsParam, regionName: string): string {
-  if (param.regionCodes && param.regionCodes[regionName]) {
-    return param.regionCodes[regionName];
-  }
-  return param.objL1; // 기본값
+export const MISLEADING_KEYWORD_HINTS: Array<{ pattern: RegExp; hint: string }> = [
+  {
+    pattern: /청년실업/,
+    hint: '⚠️ 청년실업률(15~29세)은 전체 실업률과 다른 별도 지표입니다. quick_stats는 전체 실업률만 지원 — 청년실업률은 search_statistics("청년 실업률")로 경제활동인구조사 연령별 표를 조회하세요.',
+  },
+  {
+    pattern: /연봉|연소득/,
+    hint: '⚠️ 연봉(연 단위)은 quick_stats 미지원입니다. "월급" 키워드로 상용근로자 월평균 임금(원)을 조회하거나, search_statistics("임금근로자 연소득")을 사용하세요.',
+  },
+  {
+    pattern: /가계소득|가구소득|^소득$/,
+    hint: '⚠️ 가계(가구)소득은 임금 통계와 다른 지표입니다(사업·재산·이전소득 포함). search_statistics("가계동향 소득")으로 가계동향조사를 조회하세요. 임금만 필요하면 "월급" 키워드 사용.',
+  },
+];
+
+/**
+ * 지역 코드 조회
+ *
+ * 매칭 실패 시 null 반환 — 호출 측은 에러로 처리해야 한다.
+ * (구버전은 전국 코드로 silent fallback → "전라북도 인구" 질문에 전국값을
+ *  전북값처럼 응답하는 P0 버그. 절대 전국 코드로 대체하지 말 것.)
+ */
+export function getRegionCode(param: QuickStatsParam, regionName: string): string | null {
+  if (!param.regionCodes) return null;
+  const trimmed = regionName.trim();
+  if (param.regionCodes[trimmed]) return param.regionCodes[trimmed];
+  // 풀네임·구명칭("전라북도"·"강원도"·"세종특별자치시" 등) → 표준 약칭 정규화 후 재시도
+  const short = normalizeProvinceName(trimmed);
+  return param.regionCodes[short] ?? null;
 }

@@ -10,6 +10,8 @@
 import { z } from 'zod';
 import { quickStats } from './quickStats.js';
 import { quickTrend } from './quickTrend.js';
+import { parseKosisNumber } from '../utils/dataFormatter.js';
+import { mapWithConcurrency, CHAIN_CONCURRENCY } from '../utils/concurrency.js';
 
 // ═══════════════════════════════════════════════════════════
 // chain_region_brief — 지역 한장 종합 브리핑
@@ -77,8 +79,9 @@ export async function chainRegionBrief(input: ChainRegionBriefInput) {
     }
   };
 
-  const regional = await Promise.all(
-    REGION_BRIEF_INDICATORS.map(async (ind) => {
+  const regional = await mapWithConcurrency(
+    REGION_BRIEF_INDICATORS,
+    async (ind) => {
       const r = await fetchOne(ind.key, region);
       return {
         keyword: ind.key,
@@ -92,13 +95,15 @@ export async function chainRegionBrief(input: ChainRegionBriefInput) {
         note: r.note ?? null,
         message: r.success ? r.answer?.split('\n')[0] : r.answer,
       };
-    })
+    },
+    CHAIN_CONCURRENCY
   );
 
   let national: any[] | undefined;
   if (includeNational) {
-    national = await Promise.all(
-      REGION_BRIEF_INDICATORS.map(async (ind) => {
+    national = await mapWithConcurrency(
+      REGION_BRIEF_INDICATORS,
+      async (ind) => {
         const r = await fetchOne(ind.key);
         return {
           keyword: ind.key,
@@ -108,7 +113,8 @@ export async function chainRegionBrief(input: ChainRegionBriefInput) {
           period: r.period ?? null,
           success: r.success,
         };
-      })
+      },
+      CHAIN_CONCURRENCY
     );
   }
 
@@ -207,46 +213,49 @@ export async function chainCompareRegions(input: ChainCompareRegionsInput) {
     sourceTableId: string | null;
   };
 
-  const matrix: { region: string; cells: Cell[] }[] = await Promise.all(
-    regions.map(async (region) => {
-      const cells: Cell[] = await Promise.all(
-        keywords.map(async (kw) => {
-          try {
-            const r = await quickStats({ query: kw, region });
-            const raw = r.value;
-            const numeric =
-              raw == null
-                ? null
-                : parseFloat(String(raw).replace(/,/g, '')) || null;
-            return {
-              region,
-              keyword: kw,
-              value: raw ?? null,
-              numericValue: numeric,
-              unit: r.unit ?? null,
-              period: r.period ?? null,
-              success: r.success,
-              note: r.note ?? null,
-              sourceTableId: r.source?.tableId ?? null,
-            };
-          } catch (e) {
-            return {
-              region,
-              keyword: kw,
-              value: null,
-              numericValue: null,
-              unit: null,
-              period: null,
-              success: false,
-              note: e instanceof Error ? e.message : String(e),
-              sourceTableId: null,
-            };
-          }
-        })
-      );
-      return { region, cells };
-    })
+  // (지역 × 지표) 전체 쌍을 평탄화 후 동시성 제한 실행 — 최대 17×8=136 호출이
+  // 한꺼번에 풀리면 KOSIS 쿼터·스로틀 위험 (캐시 미스 시 전부 실 API 호출).
+  const pairs = regions.flatMap((region) => keywords.map((kw) => ({ region, kw })));
+  const cellResults = await mapWithConcurrency(
+    pairs,
+    async ({ region, kw }): Promise<Cell> => {
+      try {
+        const r = await quickStats({ query: kw, region });
+        const raw = r.value;
+        // parseKosisNumber: 값 0을 보존 (parseFloat(...) || null 은 0을 결측 처리해
+        // 무역수지 0·자연증가 0 지역이 순위에서 탈락하는 버그)
+        const numeric = raw == null ? null : parseKosisNumber(String(raw));
+        return {
+          region,
+          keyword: kw,
+          value: raw ?? null,
+          numericValue: numeric,
+          unit: r.unit ?? null,
+          period: r.period ?? null,
+          success: r.success,
+          note: r.note ?? null,
+          sourceTableId: r.source?.tableId ?? null,
+        };
+      } catch (e) {
+        return {
+          region,
+          keyword: kw,
+          value: null,
+          numericValue: null,
+          unit: null,
+          period: null,
+          success: false,
+          note: e instanceof Error ? e.message : String(e),
+          sourceTableId: null,
+        };
+      }
+    },
+    CHAIN_CONCURRENCY
   );
+  const matrix: { region: string; cells: Cell[] }[] = regions.map((region) => ({
+    region,
+    cells: cellResults.filter((c) => c.region === region),
+  }));
 
   // 지표별 최고/최저 및 순위 + 소스 혼합(비교가능성) 감지
   const insights = keywords.map((kw) => {

@@ -8,10 +8,18 @@ import { getKosisClient } from '../api/client.js';
 import { getCacheManager } from '../cache/index.js';
 import {
   QUICK_STATS_PARAMS,
+  MISLEADING_KEYWORD_HINTS,
+  VITAL_STATS_TABLE_IDS,
   getQuickStatsParam,
   getRegionCode,
+  normalizeKeywordKey,
 } from '../data/quickStatsParams.js';
-import { findProvinceByDistrict, PROVINCES, AMBIGUOUS_DISTRICTS } from '../utils/regions.js';
+import {
+  findProvinceByDistrict,
+  normalizeProvinceName,
+  PROVINCES,
+  AMBIGUOUS_DISTRICTS,
+} from '../utils/regions.js';
 import { analyzeTrend, formatPeriod, parseKosisNumber } from '../utils/dataFormatter.js';
 import {
   extractKeyword,
@@ -155,6 +163,9 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
 
     if (!param) {
       const supportedKeywords = Object.keys(QUICK_STATS_PARAMS).slice(0, 30).join(', ') + ' 등';
+      // 유사하지만 정의가 다른 지표(청년실업률·연봉·가계소득 등) — 오답 대신 안내
+      const normQ = normalizeKeywordKey(trimmedKeyword);
+      const misleadingHint = MISLEADING_KEYWORD_HINTS.find((h) => h.pattern.test(normQ))?.hint;
       return {
         success: false,
         keyword: trimmedKeyword,
@@ -164,7 +175,7 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
         summary: `"${trimmedKeyword}"에 대한 추세 분석이 지원되지 않습니다.`,
         dataPoints: [],
         insights: [],
-        note: `지원 키워드: ${supportedKeywords}`,
+        note: (misleadingHint ? `${misleadingHint}\n` : '') + `지원 키워드: ${supportedKeywords}`,
       };
     }
 
@@ -173,6 +184,7 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
     //   자치구는 광역시도로 fallback + 안내
     let regionName = '전국';
     let objL1 = param.objL1;
+    let objL2 = param.objL2;
     let districtNote: string | null = null;
     let requestedRegion: string | undefined = input.region?.trim() || undefined;
     let detectedDistrict: string | null = null;
@@ -214,9 +226,28 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
 
     if (requestedRegion && param.regionCodes) {
       const regionCode = getRegionCode(param, requestedRegion);
-      if (regionCode !== param.objL1) {
-        objL1 = regionCode;
-        regionName = requestedRegion;
+      if (regionCode === null) {
+        // 지역명 미인식 — 전국 추세를 그 지역 추세처럼 반환하지 않는다 (silent fallback 금지)
+        return {
+          success: false,
+          keyword: extractedKw,
+          region: requestedRegion,
+          trend: 'stable',
+          trendDescription: '',
+          summary: `"${requestedRegion}" 지역명을 인식하지 못해 조회를 중단했습니다.`,
+          dataPoints: [],
+          insights: [],
+          note: `지원 지역: 17개 광역시도 약칭(서울/부산/…/제주) 또는 풀네임(전라북도, 강원특별자치도 등). 전국 추세는 region 생략.`,
+        };
+      }
+      const normalizedRegion = normalizeProvinceName(requestedRegion);
+      if (normalizedRegion !== '전국') {
+        if (param.regionObjLevel === 2) {
+          objL2 = regionCode;
+        } else {
+          objL1 = regionCode;
+        }
+        regionName = normalizedRegion;
       }
     } else if (requestedRegion && !param.regionCodes) {
       return {
@@ -246,7 +277,7 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
         orgId: param.orgId,
         tableId: param.tableId,
         objL1,
-        objL2: param.objL2,
+        objL2,
         itemId: param.itemId,
         periodType,
         yearCount: periodCount,
@@ -256,7 +287,7 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
           orgId: param.orgId,
           tblId: param.tableId,
           objL1,
-          objL2: param.objL2,
+          objL2,
           itmId: param.itemId,
           prdSe: periodType,
           newEstPrdCnt: periodCount,
@@ -349,17 +380,25 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
       ? `⚠️ 본 시계열은 국가데이터처 장래추계 데이터입니다 (실측 아닌 미래 추계). 정책·보고 인용 시 "추계" 명시 권장.`
       : null;
 
+    // 인구동향 계열 — 시계열 끝부분(최근 24개월)은 잠정치 가능
+    const provisionalNote = VITAL_STATS_TABLE_IDS.has(param.tableId)
+      ? `⚠️ 인구동향조사 최근 시점 수치는 잠정치일 수 있습니다 (확정치는 익년 공표).`
+      : null;
+
     // 10. 요약 생성
     const periodUnit = periodType === 'M' ? '개월' : periodType === 'Q' ? '개 분기' : '년';
     const summary = `${regionName}의 ${param.description} ${sortedData.length}${periodUnit} 추세: ${trendDescriptions[trend]}입니다. ` +
       `${formatPeriod(sortedData[0].year, periodType)} ${sortedData[0].formatted}${param.unit}에서 ` +
       `${formatPeriod(sortedData[sortedData.length - 1].year, periodType)} ${sortedData[sortedData.length - 1].formatted}${param.unit}로 ` +
       `${parseFloat(totalChange) >= 0 ? '증가' : '감소'}했습니다 (${parseFloat(totalChange) >= 0 ? '+' : ''}${totalChange}%).\n\n` +
-      `📊 출처: ${param.tableName} (KOSIS)` +
+      `📊 출처: ${param.tableName} (KOSIS ${param.tableId})` +
       (districtNote ? `\n\n${districtNote}` : '') +
-      (projectionNote ? `\n\n${projectionNote}` : '');
+      (projectionNote ? `\n\n${projectionNote}` : '') +
+      (provisionalNote ? `\n\n${provisionalNote}` : '');
 
-    const combinedNote = [districtNote, projectionNote].filter(Boolean).join(' / ');
+    const combinedNote = [districtNote, projectionNote, provisionalNote]
+      .filter(Boolean)
+      .join(' / ');
 
     return {
       success: true,

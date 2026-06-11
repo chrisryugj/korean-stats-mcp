@@ -81,9 +81,12 @@ const FALLBACK_TABLES: Record<string, Array<{
     { ORG_ID: '101', ORG_NM: '국가데이터처', TBL_ID: 'DT_1B04005', TBL_NM: '시도/성/연령별 주민등록인구', STAT_ID: 'DT_1B04005', STAT_NM: '주민등록인구현황', VW_CD: 'MT_ZTITLE' },
     { ORG_ID: '101', ORG_NM: '국가데이터처', TBL_ID: 'DT_1IN1503', TBL_NM: '주민등록인구현황(시군구)', STAT_ID: 'DT_1IN1503', STAT_NM: '주민등록인구현황', VW_CD: 'MT_ZTITLE' },
   ],
+  // 2026-06 라이브 검증: 구 폴백(ORG 116 + DT_1YL21101)은 orgId·표 모두 오류였음
+  // (DT_1YL21101은 orgId=101의 '구조·구급대원 1인당 담당주민수' 표). e-지방지표
+  // 주택 표(DISTRICT_OPENAPI_ROUTES에서 검증 완료)로 교체.
   '집값': [
-    { ORG_ID: '116', ORG_NM: '한국부동산원', TBL_ID: 'DT_1YL21101', TBL_NM: '아파트 매매/전세 가격지수', STAT_ID: 'DT_1YL21101', STAT_NM: '부동산통계', VW_CD: 'MT_ZTITLE' },
-    { ORG_ID: '116', ORG_NM: '한국부동산원', TBL_ID: 'DT_1YL20111E', TBL_NM: '주택매매가격지수', STAT_ID: 'DT_1YL20111E', STAT_NM: '부동산통계', VW_CD: 'MT_ZTITLE' },
+    { ORG_ID: '101', ORG_NM: '국가데이터처', TBL_ID: 'DT_1YL20161E', TBL_NM: '아파트매매가격지수(e-지방지표)', STAT_ID: 'DT_1YL20161E', STAT_NM: '전국주택가격동향조사', VW_CD: 'MT_GTITLE01' },
+    { ORG_ID: '101', ORG_NM: '국가데이터처', TBL_ID: 'DT_1YL13601E', TBL_NM: '주택전세가격지수(e-지방지표)', STAT_ID: 'DT_1YL13601E', STAT_NM: '전국주택가격동향조사', VW_CD: 'MT_GTITLE01' },
   ],
   '실업률': [
     { ORG_ID: '101', ORG_NM: '국가데이터처', TBL_ID: 'DT_1DA7102S', TBL_NM: '성/연령별 실업률', STAT_ID: 'DT_1DA7102S', STAT_NM: '경제활동인구조사', VW_CD: 'MT_ZTITLE' },

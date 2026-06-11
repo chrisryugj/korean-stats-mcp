@@ -66,8 +66,12 @@ export const DISTRICT_OPENAPI_ROUTES: Record<string, DistrictOpenApiRoute> = {
   '고령인구': { orgId: '101', tblId: 'DT_1YL20631', itmId: 'T001', prdSe: 'Y', objId: 'SGG', description: '65세 이상 고령인구', unit: '명' },
   '노인인구': { orgId: '101', tblId: 'DT_1YL20631', itmId: 'T001', prdSe: 'Y', objId: 'SGG', description: '65세 이상 노인인구', unit: '명' },
   '65세이상인구': { orgId: '101', tblId: 'DT_1YL20631', itmId: 'T001', prdSe: 'Y', objId: 'SGG', description: '65세 이상 인구', unit: '명' },
-  '고령화지수': { orgId: '101', tblId: 'DT_1YL20631', itmId: 'T10', prdSe: 'Y', objId: 'SGG', description: '고령인구비율', unit: '%' },
-  '노령화지수': { orgId: '101', tblId: 'DT_1YL20631', itmId: 'T10', prdSe: 'Y', objId: 'SGG', description: '고령인구비율', unit: '%' },
+  '고령인구비율': { orgId: '101', tblId: 'DT_1YL20631', itmId: 'T10', prdSe: 'Y', objId: 'SGG', description: '고령인구비율', unit: '%' },
+  // 노령화지수 ≠ 고령인구비율 (지수=65+/0~14세×100, 비율=65+/전체×100) — 정의가 다른
+  // 지표를 같은 키워드로 응답하던 매핑 오류 수정. DT_1IN2030(인구총조사 실측,
+  // objL1=구분 01=총인구, objL2=행정구역 5자리 시군구) 라이브 검증: 광진구 2024=241.6.
+  '고령화지수': { orgId: '101', tblId: 'DT_1IN2030', itmId: 'T4', prdSe: 'Y', objId: 'auto', districtObjLevel: 2, extraObjL1: '01', description: '노령화지수 (유소년인구 100명당 65세 이상 인구)', unit: '' },
+  '노령화지수': { orgId: '101', tblId: 'DT_1IN2030', itmId: 'T4', prdSe: 'Y', objId: 'auto', districtObjLevel: 2, extraObjL1: '01', description: '노령화지수 (유소년인구 100명당 65세 이상 인구)', unit: '' },
 
   // ── 의사수 (DT_1YL20981 인구 천명당 의사수 e-지방지표) ─ OBJ_ID=SGG ──
   // T001=의료기관 종사 의사수, T002=주민등록인구, T10=인구 천명당 의사수

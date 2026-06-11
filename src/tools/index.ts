@@ -61,6 +61,18 @@ export {
   type FetchKosisExcelInput,
 } from './fetchKosisExcel.js';
 
+export {
+  quickRank,
+  quickRankSchema,
+  type QuickRankInput,
+} from './quickRank.js';
+
+export {
+  explainStatistic,
+  explainStatisticSchema,
+  type ExplainStatisticInput,
+} from './explainStatistic.js';
+
 // 체인 도구 (공무원 업무 킬링 기능)
 export {
   chainRegionBrief,

@@ -8,8 +8,9 @@
  */
 
 import express from 'express';
+import { timingSafeEqual } from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { createServer } from './server.js';
+import { createServer, SERVER_VERSION, TOOL_COUNT } from './server.js';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const BODY_LIMIT = process.env.MCP_BODY_LIMIT || '200kb';
@@ -85,18 +86,18 @@ async function main() {
     res.json({
       status: 'ok',
       name: 'korean-stats-mcp',
-      version: '1.7.1',
-      tools: 12,
+      version: SERVER_VERSION,
+      tools: TOOL_COUNT,
     });
   });
 
   app.get('/', (_req, res) => {
     res.json({
       name: 'korean-stats-mcp',
-      version: '1.7.1',
-      description: 'KOSIS 91 키워드 + 17 시도 + 자치구 230+ 라우팅 + 3개 체인 MCP',
+      version: SERVER_VERSION,
+      description: 'KOSIS 92 키워드 + 17 시도 + 자치구 230+ 라우팅 + 순위·각주·체인 MCP',
       endpoint: '/mcp (POST only)',
-      tools: 12,
+      tools: TOOL_COUNT,
       docs: 'https://github.com/chrisryugj/korean-stats-mcp',
     });
   });
@@ -108,7 +109,10 @@ async function main() {
     if (AUTH_TOKEN) {
       const auth = req.headers.authorization ?? '';
       const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-      if (token !== AUTH_TOKEN) {
+      // timing-safe 비교 — 단순 !== 는 타이밍 부채널로 토큰 추측 여지
+      const a = Buffer.from(token);
+      const b = Buffer.from(AUTH_TOKEN);
+      if (a.length !== b.length || !timingSafeEqual(a, b)) {
         return res.status(401).json({
           jsonrpc: '2.0',
           error: { code: -32001, message: 'Unauthorized' },

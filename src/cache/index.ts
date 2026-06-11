@@ -13,10 +13,15 @@ const TTL = {
   SEARCH_RESULTS: 1 * 60 * 60,         // 검색: 1시간
   EXPLANATION: 7 * 24 * 60 * 60,       // 설명: 7일
   TABLE_META: 24 * 60 * 60,            // 테이블 메타: 24시간
+  // 빈 결과: KOSIS 일시 장애로 0건이 왔을 때 6시간 고착되지 않도록 짧게
+  EMPTY_RESULT: 60,
 } as const;
 
 class CacheManager {
   private cache: NodeCache;
+  // 동일 키 동시 요청 dedup — chain 도구가 같은 (지표×지역)을 병렬 호출할 때
+  // 캐시 미스 stampede로 KOSIS 중복 호출되는 것을 방지 (promise 공유)
+  private inflight = new Map<string, Promise<unknown>>();
 
   constructor() {
     this.cache = new NodeCache({
@@ -55,11 +60,30 @@ class CacheManager {
       return cached;
     }
 
-    // API 호출 및 캐시 저장
-    const data = await fetcher();
-    this.cache.set(key, data, ttl ?? config.cache.ttlHours * 60 * 60);
+    // 동일 키 in-flight 요청이 있으면 그 promise 공유 (stampede 방지)
+    const existing = this.inflight.get(key);
+    if (existing) {
+      return existing as Promise<T>;
+    }
 
-    return data;
+    const promise = (async () => {
+      try {
+        const data = await fetcher();
+        // 빈 배열은 일시 장애일 수 있음 — 짧은 TTL로만 캐시 (장기 고착 방지)
+        const isEmpty = Array.isArray(data) && data.length === 0;
+        this.cache.set(
+          key,
+          data,
+          isEmpty ? TTL.EMPTY_RESULT : (ttl ?? config.cache.ttlHours * 60 * 60)
+        );
+        return data;
+      } finally {
+        this.inflight.delete(key);
+      }
+    })();
+
+    this.inflight.set(key, promise);
+    return promise;
   }
 
   /**
