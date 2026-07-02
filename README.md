@@ -184,7 +184,7 @@ Claude Pro/Max/Team/Enterprise 요금제에서 동작합니다.
 
 1. [claude.ai](https://claude.ai) 로그인 → 좌측 본인 이름 → **설정** → **커넥터**
 2. **커스텀 커넥터 추가**
-3. 입력 — 이름: `korean-stats` / URL: `https://korean-stats-mcp.fly.dev/mcp`
+3. 입력 — 이름: `korean-stats` / URL: `https://mcp.gomdori.app/stats`
 4. **추가** → 추가된 커넥터 **구성** → 모든 도구를 **"항상 사용"**으로
 5. 채팅창에 `"광진구 고용률 알려줘"` 처럼 한국어로 질문하면 끝
 
@@ -237,7 +237,7 @@ curl -fsSL https://raw.githubusercontent.com/chrisryugj/korean-stats-mcp/main/in
   "mcpServers": {
     "korean-stats": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "https://korean-stats-mcp.fly.dev/mcp"]
+      "args": ["-y", "mcp-remote", "https://mcp.gomdori.app/stats"]
     }
   }
 }
@@ -285,8 +285,8 @@ AI 앱 설정에 발급받은 키를 넣습니다.
 
 ## 원격 엔드포인트
 
-- 엔드포인트: `https://korean-stats-mcp.fly.dev/mcp` (14개 도구 전체 동작)
-- 헬스체크: `https://korean-stats-mcp.fly.dev/health`
+- 엔드포인트: `https://mcp.gomdori.app/stats` (14개 도구 전체 동작)
+- 헬스체크: `https://mcp.gomdori.app/stats/health`
 
 ---
 
