@@ -18,7 +18,7 @@ primary_region = 'nrt'  # Tokyo. icn(Seoul)은 일반 plan 미지원. nrt가 sin
 [http_service]
   internal_port = 3000
   force_https = true
-  auto_stop_machines = 'suspend'
+  auto_stop_machines = 'stop'  # suspend는 proxy가 안 재우는 증상 실측(2026-07-02) — korean-law-mcp/docs/FLY-COST.md
   auto_start_machines = true
   min_machines_running = 0
 

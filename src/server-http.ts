@@ -36,6 +36,15 @@ function scrub(s: string): string {
 async function main() {
   const app = express();
   app.set('trust proxy', parseTrustProxy(TRUST_PROXY_RAW));
+
+  // ACCESS_LOG=1 일 때만 요청 로그 — req.path만 기록 (쿼리스트링의 apiKey 유출 방지)
+  if (process.env.ACCESS_LOG === '1') {
+    app.use((req, _res, next) => {
+      console.error(`[access] ${req.method} ${req.path} ip=${req.ip} ua="${req.headers['user-agent'] ?? '-'}"`);
+      next();
+    });
+  }
+
   app.use(express.json({ limit: BODY_LIMIT }));
 
   // Rate limit: per-IP per minute
