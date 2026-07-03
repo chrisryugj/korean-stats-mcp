@@ -5,9 +5,9 @@
 프로덕션 공식 서빙은 **[gomdori-mcp](https://github.com/chrisryugj/gomdori-mcp) 통합 호스트**(fly 앱 `korean-law-mcp` 1대, MCP 5종 동거)다.
 
 - 공식 주소: `https://mcp.gomdori.app/stats`
-- 구 주소 `korean-stats-mcp.fly.dev/mcp`는 과도기 병행 운영 중 (기존 사용자 이전 후 scale 0 예정)
+- 구 앱 `korean-stats-mcp`는 통합 완료로 **scale 0 처리됨** (fly.dev 주소 비활성)
 - **반영 절차**: 이 레포 커밋·푸시 → `npm publish` → `~/workspace/gomdori-mcp/Dockerfile`의 `korean-stats-mcp@X.Y.Z` 핀 갱신 → `cd ~/workspace/gomdori-mcp && fly deploy -c fly.production.toml` → `curl https://mcp.gomdori.app/healthz` 확인
-- 이 레포의 `fly deploy`는 **구 병행 앱에만** 반영된다 — 과도기 동안 구 앱 사용자도 유지하려면 병행 배포, 통합 반영은 반드시 위 절차로
+- 구 앱은 scale 0이므로 이 레포에서 `fly deploy` 직접 실행은 무의미 — 통합 반영은 반드시 위 절차로
 - 배경·비용 근거: [korean-law-mcp/docs/FLY-COST.md](https://github.com/chrisryugj/korean-law-mcp/blob/main/docs/FLY-COST.md)
 
 ## 빌드 함정
