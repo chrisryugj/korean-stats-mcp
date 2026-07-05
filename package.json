@@ -1,6 +1,6 @@
 {
   "name": "korean-stats-mcp",
-  "version": "1.8.2",
+  "version": "1.8.3",
   "description": "한국 국가데이터처 KOSIS OpenAPI 기반 MCP 서버 - 92개 키워드 + 자연어 별칭/오타 정규화 + 17개 시도/자치구 230+ 라우팅 + 시계열 추세 + 전국 순위(quick_rank) + 출처 각주 생성(explain_statistic) + 체인 도구 3종(지역 브리핑·다지역 비교·정책 영역) + 자치구 정밀 OpenAPI 라우팅 15종 통계표.",
   "main": "dist/index.js",
   "type": "module",

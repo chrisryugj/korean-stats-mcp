@@ -71,14 +71,13 @@ type ToolSchema = { name: string; description: string; inputSchema: { shape: z.Z
 function registerTool(
   server: McpServer,
   schema: ToolSchema,
-  title: string,
   handler: (args: any) => Promise<unknown>
 ): void {
   server.tool(
     schema.name,
     `${SERVICE_NAME} — ${schema.description}`,
     schema.inputSchema.shape,
-    { title, ...READONLY_ANN },
+    { ...READONLY_ANN },
     async (args: any) => ({
       content: [{ type: 'text' as const, text: JSON.stringify(await handler(args), null, 2) }],
     })
@@ -100,20 +99,20 @@ export function createServer(): McpServer {
   });
 
   // ===== 도구 등록 (registerTool: 서비스명·annotations 자동 주입) =====
-  registerTool(server, searchStatisticsSchema, '통계 검색', searchStatistics);
-  registerTool(server, getStatisticsListSchema, '통계표 목록', getStatisticsList);
-  registerTool(server, getStatisticsDataSchema, '통계 데이터 조회', getStatisticsData);
-  registerTool(server, compareStatisticsSchema, '통계 비교', compareStatistics);
-  registerTool(server, analyzeTimeSeriesSchema, '시계열 분석', analyzeTimeSeries);
-  registerTool(server, getTableInfoSchema, '통계표 정보', getTableInfo);
-  registerTool(server, quickStatsSchema, '자연어 즉답', quickStats);
-  registerTool(server, quickTrendSchema, '추세 분석', quickTrend);
-  registerTool(server, quickRankSchema, '전국 순위', quickRank);
-  registerTool(server, explainStatisticSchema, '통계 정의·인용 각주', explainStatistic);
-  registerTool(server, fetchKosisExcelSchema, '자치구 엑셀 통계', fetchKosisExcel);
-  registerTool(server, chainRegionBriefSchema, '지역 종합 브리핑', chainRegionBrief);
-  registerTool(server, chainCompareRegionsSchema, '다지역 비교 매트릭스', chainCompareRegions);
-  registerTool(server, chainPolicyIndicatorSchema, '정책영역 시계열', chainPolicyIndicator);
+  registerTool(server, searchStatisticsSchema, searchStatistics);
+  registerTool(server, getStatisticsListSchema, getStatisticsList);
+  registerTool(server, getStatisticsDataSchema, getStatisticsData);
+  registerTool(server, compareStatisticsSchema, compareStatistics);
+  registerTool(server, analyzeTimeSeriesSchema, analyzeTimeSeries);
+  registerTool(server, getTableInfoSchema, getTableInfo);
+  registerTool(server, quickStatsSchema, quickStats);
+  registerTool(server, quickTrendSchema, quickTrend);
+  registerTool(server, quickRankSchema, quickRank);
+  registerTool(server, explainStatisticSchema, explainStatistic);
+  registerTool(server, fetchKosisExcelSchema, fetchKosisExcel);
+  registerTool(server, chainRegionBriefSchema, chainRegionBrief);
+  registerTool(server, chainCompareRegionsSchema, chainCompareRegions);
+  registerTool(server, chainPolicyIndicatorSchema, chainPolicyIndicator);
 
   // ===== 리소스 등록 =====
 
