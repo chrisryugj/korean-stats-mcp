@@ -63,7 +63,7 @@ import { config, validateConfig } from './config/index.js';
  *   - annotations: MCP ToolAnnotations. 14개 도구 모두 KOSIS 공식 DB read-only 조회(멱등) + 외부 API 호출.
  */
 const SERVICE_NAME = 'Korean-stats-mcp';
-const READONLY_ANN = { readOnlyHint: true, idempotentHint: true, openWorldHint: true } as const;
+const READONLY_ANN = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true } as const;
 
 type ToolSchema = { name: string; description: string; inputSchema: { shape: z.ZodRawShape } };
 
