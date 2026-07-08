@@ -12,42 +12,15 @@ import type { SimplifiedDataItem } from '../api/types.js';
 
 export const getStatisticsDataSchema = {
   name: 'get_statistics_data',
-  description: `[직접조회] 특정 통계표의 실제 데이터를 조회. orgId+tableId 필수.
+  description: `[직접조회] 특정 통계표의 실제 데이터 조회. orgId+tableId 필수.
 
-🔄 도구 라우팅:
-• 자연어/키워드(예: "서울 인구") → quick_stats가 우선
-• 시계열(추세/추이) → quick_trend
-• 통계표 ID를 모르면 → search_statistics
-• 차원·항목 코드 확인 → get_table_info
+🔄 라우팅: 자연어/키워드는 quick_stats, 추세·추이는 quick_trend, 표 ID를 모르면 search_statistics, 차원·항목 코드 확인은 get_table_info 먼저.
 
-자동 메타 lookup 지원:
-• regionName="광진구" 처럼 자치구·시·군 이름을 주면 objL1·objL2가 자동으로 채워집니다 (시군구별/자치구별/구군별/행정구역별 OBJ에서 매칭).
-• itemName으로 항목명 매칭도 가능 (예: "여자", "65세이상").
-• objL1·itemId를 직접 넣으면 lookup 없이 그 값 사용.
+자동 lookup: regionName="광진구"처럼 자치구·시·군 이름을 주면 objL1·objL2 자동 매칭. itemName으로 항목명 매칭도 가능(예: "여자"). objL1·itemId를 직접 넣으면 lookup 생략.
 
-자치구·시·군 통계 조회 경로 (광역시도별로 패턴이 다름):
+자치구·시·군 통계는 광역시도별로 표 ID 패턴이 달라 search_statistics로 먼저 확인. 자치구 단독 표(orgId=5xx)나 국가데이터처 e-지방지표(orgId=101, DT_1YL* — 256개 행정구역 통합)가 폴백.
 
-【Path A — 광역시도 기본통계 시리즈】 가장 일반적
-• 서울: orgId=201, tblId=DT_201004_* (예: DT_201004_O110054 보육시설)
-• 부산: orgId=202, tblId=DT_xxx (예: DT_202 구·군별 세대 및 등록인구)
-• 대구: orgId=203, tblId=DT_Bxxxxx (예: DT_B40001 구군별 세대 및 등록인구)
-• 인천 이하: 자치구별 [구군별]/[행정구역별] 분류에 ITM_NM으로 자치구가 들어있음
-• 광역시도별 LIST_ID 패턴이 다르므로, search_statistics 로 표 ID 먼저 확인
-
-【Path B — 자치구 단독 OpenAPI 시리즈】 챕터별 세분화 통계
-• orgId=5xx (자치구 코드), tblId=DT_<자치구코드>0?_<챕터><번호>
-• 예: 해운대구 orgId=539, tblId=DT_53902_B001003 (인구추이)
-• 예: 수성구 orgId=556, tblId=DT_55601_B001003 (인구추이)
-• regionName 없이 그대로 조회 (이미 자치구 한정 표)
-
-【Path C — 국가데이터처 e-지방지표 (orgId=101)】 256개 행정구역 통합
-• DT_1YLxxxxx 시리즈 (예: DT_1YL15001 학급당 학생수)
-• regionName="수성구" / "해운대구" 등 모든 시군구가 [행정구역별] 분류에 들어있음
-• 광역시도 기본통계가 미비할 때 가장 광범위한 폴백
-
-ITM_ID는 통계표마다 다른 코드 체계를 쓰므로(예: "001005", "1520213102303231A.09", "22060"), 직접 입력 대신 regionName/itemName 사용을 권장합니다.
-
-「OO광역시도 OO구 기본통계」 컨테이너 LIST_ID(예: 201_201A_505_50501)는 직접 조회하지 말 것 — TBL_ID가 아님.`,
+ITM_ID는 표마다 코드 체계가 달라(예: "001005") 직접 입력보다 regionName/itemName 권장. 컨테이너 LIST_ID(예: 201_201A_505_50501)는 TBL_ID가 아니므로 직접 조회 금지.`,
   inputSchema: z.object({
     orgId: z.string().describe('기관 ID (예: 201 = 서울특별시)'),
     tableId: z.string().describe('통계표 ID (예: DT_201004_O110054)'),

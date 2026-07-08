@@ -57,30 +57,16 @@ async function fetchWithRetry(url: string, init: RequestInit, attempts = 3): Pro
 
 export const fetchKosisExcelSchema = {
   name: 'fetch_kosis_excel',
-  description: `[엑셀파싱] KOSIS 사이트의 파일 통계표(엑셀로만 제공)를 다운로드 + 파싱한 마크다운 반환. quick_stats / quick_trend가 광역시도까지만 지원하므로 자치구별 정밀 데이터는 이 도구로.
+  description: `[엑셀파싱] KOSIS 파일 통계표(엑셀 전용)를 다운로드·파싱해 마크다운 반환. quick_stats/quick_trend가 광역시도까지만 지원하므로 자치구 정밀 데이터·「작성중지통계」 등 파일 전용 통계는 이 도구로.
 
-⚠️ 자치구 file 통계표 제공은 광역시도마다 차이:
-• **확인된 제공**: 서울 자치구 일부 (광진구 orgId=505, 강남구 orgId=523 등) — DT_{orgId}001_FILE{year} 형식
-• **미제공 확인**: 부산 해운대구(539), 대구 수성구(556) 등 비-서울 다수 자치구 — 404 발생
-• 비-서울 자치구는 file 통계표 대신 \`get_statistics_data\` 로 OpenAPI 경로 사용 권장:
-  - Path A: 광역시도 기본통계 (orgId=202/203, regionName="해운대구"/"수성구")
-  - Path B: 자치구 단독 OpenAPI (orgId=539, tblId=DT_53902_B001003 등)
-  - Path C: 국가데이터처 e-지방지표 (orgId=101, DT_1YL*)
-
-언제 사용:
-• OpenAPI(get_statistics_data) 가 "통계표 없음" 에러를 내고, 해당 자치구가 서울 자치구일 때
-• 「작성중지통계」 카테고리 등 파일 형태로만 제공되는 통계
+⚠️ 자치구 file 통계는 서울 자치구만 안정적 제공(광진구 orgId=505, 강남구 523 등, DT_{orgId}001_FILE{year} 형식). 부산·대구 등 비-서울 자치구는 다수 미제공(404) → get_statistics_data의 OpenAPI 경로 사용 권장.
 
 사용 흐름:
-1. listOnly=true 로 파일 목록 먼저 조회 → file_sn(1~N) + 파일명(Ⅲ.인구 등) 확인
-2. file_sn 지정해서 다시 호출 → 해당 파일을 마크다운으로 반환
+1. listOnly=true로 파일 목록 조회 → fileSn + 파일명(Ⅲ.인구 등) 확인
+2. fileSn 지정해 재호출 → 해당 파일 마크다운 반환. keyword를 주면 fileSn 자동 도출.
 
-광진구 기본통계 예시:
-{ orgId: "505", tblId: "DT_505001_FILE2024", listOnly: true }       // 14개 파일 목록
-{ orgId: "505", tblId: "DT_505001_FILE2024", fileSn: 3 }             // Ⅲ.인구 파일 파싱
-
-자치구 이름으로 자동 도출 (서울 자치구만 안정적):
-{ districtName: "광진구", listOnly: true }                           // orgId/tblId 자동 도출
+예시:
+{ districtName: "광진구", listOnly: true }        // orgId/tblId 자동 도출
 { districtName: "강남구", fileSn: 3, year: 2024 }`,
   inputSchema: z.object({
     districtName: z
