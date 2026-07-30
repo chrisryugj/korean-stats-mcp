@@ -43,10 +43,10 @@
 
 ```bash
 # 부산광역시 기본통계 — orgId=202 LIST 조회
-curl 'https://kosis.kr/openapi/statisticsList.do?method=getList&apiKey=MTIyZDEyMjlkOGNiNjhhNjY0YzFmNjNiNzVmMTU2Njg=&vwCd=MT_OTITLE&parentListId=202&format=json&jsonVD=Y'
+curl 'https://kosis.kr/openapi/statisticsList.do?method=getList&apiKey=${KOSIS_API_KEY}&vwCd=MT_OTITLE&parentListId=202&format=json&jsonVD=Y'
 
 # 대구도 동일
-curl 'https://kosis.kr/openapi/statisticsList.do?method=getList&apiKey=MTIyZDEyMjlkOGNiNjhhNjY0YzFmNjNiNzVmMTU2Njg=&vwCd=MT_OTITLE&parentListId=203&format=json&jsonVD=Y'
+curl 'https://kosis.kr/openapi/statisticsList.do?method=getList&apiKey=${KOSIS_API_KEY}&vwCd=MT_OTITLE&parentListId=203&format=json&jsonVD=Y'
 ```
 
 각 광역시도의 「OO 기본통계」 LIST_ID를 찾고, 그 하위 통계표 ID 가져와서 메타 조회. 자치구별 분류 있는지 확인.
