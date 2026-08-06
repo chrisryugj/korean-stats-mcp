@@ -33,10 +33,10 @@ const KOSIS_BASE = `${KOSIS_HOST}/nsibsHtmlSvc/fileView/FileStbl`;
 /**
  * KOSIS stat.kosis.kr 콜드 호출 안정화 wrapper
  *
- * Fly Singapore → KOSIS Korea 콜드 path에서 첫 호출이 timeout/ECONNRESET 으로 자주 실패한다.
+ * KOSIS 콜드 path에서 첫 호출이 timeout/ECONNRESET 으로 자주 실패한다.
  * KOSIS는 멱등 GET·세션 쿠키 기반 POST라 재시도 안전 (POST 부작용 없음 — 다운로드만).
  *
- * - timeout: 15s (Singapore→Seoul cold path 여유)
+ * - timeout: 15s (cold path 여유)
  * - attempts: 3 (지수 백오프 800ms / 1600ms — 추가 대기 상한 ~2.4s)
  */
 async function fetchWithRetry(url: string, init: RequestInit, attempts = 3): Promise<Response> {
