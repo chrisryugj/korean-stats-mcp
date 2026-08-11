@@ -5,8 +5,42 @@
 
 import { z } from 'zod';
 import { getKosisClient } from '../api/client.js';
+import type { StatisticsDataItem } from '../api/types.js';
 import { getCacheManager } from '../cache/index.js';
+import { config } from '../config/index.js';
 import { calculateChangeRate, parseKosisNumber } from '../utils/dataFormatter.js';
+
+export function appendRowsWithinLimit<T>(
+  target: T[],
+  rows: readonly T[],
+  maxRows: number = config.compareStatistics.maxAggregateRows,
+  currentBytes = 0,
+  maxBytes: number = config.compareStatistics.maxAggregateBytes
+): number {
+  if (!Number.isSafeInteger(maxRows) || maxRows <= 0) {
+    throw new Error('Compare aggregate row limit must be a positive safe integer.');
+  }
+  if (!Number.isSafeInteger(currentBytes) || currentBytes < 0) {
+    throw new Error('Compare aggregate byte count must be a non-negative safe integer.');
+  }
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
+    throw new Error('Compare aggregate byte limit must be a positive safe integer.');
+  }
+  if (target.length + rows.length > maxRows) {
+    throw new Error(`Compare aggregate row limit exceeded (${maxRows} rows).`);
+  }
+
+  // Each KOSIS period is measured before it is appended. Serializing chunks
+  // separately is a conservative approximation of the final aggregate size.
+  const chunkBytes = Buffer.byteLength(JSON.stringify(rows), 'utf8');
+  const nextBytes = currentBytes + chunkBytes;
+  if (!Number.isSafeInteger(nextBytes) || nextBytes > maxBytes) {
+    throw new Error(`Compare aggregate byte limit exceeded (${nextBytes} > ${maxBytes} bytes).`);
+  }
+
+  target.push(...rows);
+  return nextBytes;
+}
 
 export const compareStatisticsSchema = {
   name: 'compare_statistics',
@@ -21,6 +55,11 @@ export const compareStatisticsSchema = {
     periodType: z.enum(['Y', 'M', 'Q']).describe('주기: Y(년), M(월), Q(분기)'),
     periods: z
       .array(z.string())
+      .min(2, '시점 비교에는 2개 이상의 periods가 필요합니다.')
+      .max(12, 'periods는 최대 12개까지 비교할 수 있습니다.')
+      .refine((periods) => new Set(periods).size === periods.length, {
+        message: 'periods에는 중복 시점을 넣을 수 없습니다.',
+      })
       .optional()
       .describe('비교할 시점들 (예: ["2022", "2023", "2024"])'),
     objL1: z.string().optional().describe('분류1 코드'),
@@ -30,6 +69,20 @@ export const compareStatisticsSchema = {
 };
 
 export type CompareStatisticsInput = z.infer<typeof compareStatisticsSchema.inputSchema>;
+
+export function buildCompareStatisticsCacheParams(input: CompareStatisticsInput) {
+  return {
+    orgId: input.orgId,
+    tableId: input.tableId,
+    compareType: input.compareType,
+    periodType: input.periodType,
+    periods: input.compareType === 'period' ? (input.periods ?? []) : null,
+    objL1: input.objL1 || 'ALL',
+    objL2: input.objL2 ?? null,
+    itemId: input.compareType === 'period' ? (input.itemId || 'ALL') : 'ALL',
+    newEstPrdCnt: input.compareType === 'item' ? 1 : null,
+  };
+}
 
 interface ComparisonItem {
   name: string;
@@ -62,16 +115,12 @@ export async function compareStatistics(
   try {
     // 데이터 조회
     const results = await cache.getStatisticsData(
-      {
-        orgId: input.orgId,
-        tableId: input.tableId,
-        compareType: input.compareType,
-        periods: input.periods,
-      },
+      buildCompareStatisticsCacheParams(input),
       async () => {
         if (input.compareType === 'period' && input.periods) {
           // 여러 시점 데이터 조회
-          const allResults = [];
+          const allResults: StatisticsDataItem[] = [];
+          let aggregateBytes = 0;
           for (const period of input.periods) {
             const data = await client.getStatisticsData({
               orgId: input.orgId,
@@ -83,7 +132,13 @@ export async function compareStatistics(
               startPrdDe: period,
               endPrdDe: period,
             });
-            allResults.push(...data);
+            aggregateBytes = appendRowsWithinLimit(
+              allResults,
+              data,
+              config.compareStatistics.maxAggregateRows,
+              aggregateBytes,
+              config.compareStatistics.maxAggregateBytes
+            );
           }
           return allResults;
         } else {

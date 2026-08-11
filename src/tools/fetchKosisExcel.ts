@@ -29,6 +29,68 @@ import { resolveFileSnByKeyword } from '../data/districtFileMap.js';
 
 const KOSIS_HOST = 'https://stat.kosis.kr';
 const KOSIS_BASE = `${KOSIS_HOST}/nsibsHtmlSvc/fileView/FileStbl`;
+export const DEFAULT_XLSX_MAX_BYTES = 20 * 1024 * 1024;
+
+export function resolveXlsxMaxBytes(raw = process.env.KOSIS_XLSX_MAX_BYTES): number {
+  if (raw === undefined || raw === '') return DEFAULT_XLSX_MAX_BYTES;
+  if (!/^\d+$/.test(raw)) {
+    throw new Error('KOSIS_XLSX_MAX_BYTES must be a positive integer.');
+  }
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error('KOSIS_XLSX_MAX_BYTES must be a positive safe integer.');
+  }
+  return parsed;
+}
+
+export async function readResponseBodyWithLimit(
+  response: Response,
+  maxBytes: number
+): Promise<ArrayBuffer> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
+    throw new Error('XLSX size limit must be a positive safe integer.');
+  }
+
+  const contentLength = response.headers.get('content-length');
+  if (contentLength !== null) {
+    const declaredBytes = Number(contentLength);
+    if (Number.isFinite(declaredBytes) && declaredBytes > maxBytes) {
+      try {
+        await response.body?.cancel();
+      } catch {
+        // Preserve the deterministic size-limit error if cleanup fails.
+      }
+      throw new Error(`KOSIS XLSX size limit exceeded (${declaredBytes} > ${maxBytes} bytes).`);
+    }
+  }
+  if (!response.body) throw new Error('KOSIS XLSX response body is empty.');
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel();
+        throw new Error(`KOSIS XLSX size limit exceeded (${totalBytes} > ${maxBytes} bytes).`);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const output = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return output.buffer;
+}
 
 /**
  * KOSIS stat.kosis.kr 콜드 호출 안정화 wrapper
@@ -248,9 +310,15 @@ async function downloadFile(
   orgId: string,
   tblId: string,
   fileSn: number,
-  info: { dwldFilePath: string; dwldFileNm: string },
+  info: { dwldFilePath: string; dwldFileNm: string; dwldFileSize?: number },
   cookie: string
 ): Promise<ArrayBuffer> {
+  const maxBytes = resolveXlsxMaxBytes();
+  if (info.dwldFileSize !== undefined && info.dwldFileSize > maxBytes) {
+    throw new Error(
+      `KOSIS XLSX size limit exceeded (${info.dwldFileSize} > ${maxBytes} bytes).`
+    );
+  }
   const url = `${KOSIS_BASE}/dwldServerFile.do`;
   const body = new URLSearchParams({
     org_id: orgId,
@@ -272,7 +340,7 @@ async function downloadFile(
     body: body.toString(),
   });
   if (!res.ok) throw new Error(`dwldServerFile.do HTTP ${res.status}`);
-  return res.arrayBuffer();
+  return readResponseBodyWithLimit(res, maxBytes);
 }
 
 export async function fetchKosisExcel(input: FetchKosisExcelInput): Promise<ExcelFetchResult> {

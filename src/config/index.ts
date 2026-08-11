@@ -21,6 +21,14 @@ export const config = {
     maxKeys: 1000,
   },
 
+  compareStatistics: {
+    maxAggregateRows: parseInt(process.env.COMPARE_STATISTICS_MAX_ROWS || '50000', 10),
+    maxAggregateBytes: parseInt(
+      process.env.COMPARE_STATISTICS_MAX_BYTES || String(32 * 1024 * 1024),
+      10
+    ),
+  },
+
   // 로그 레벨
   logLevel: process.env.LOG_LEVEL || 'info',
 
