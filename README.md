@@ -3,6 +3,7 @@
 **국가데이터처 KOSIS, 이제 사이트에 들어가지 않습니다.**
 AI 어시스턴트에게 한국어로 물어보면 국가데이터처 공식 수치가 출처와 함께 바로 나옵니다.
 
+[![npm version](https://img.shields.io/npm/v/korean-stats-mcp.svg)](https://www.npmjs.com/package/korean-stats-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-blue)](https://modelcontextprotocol.io/)
 [![KOSIS](https://img.shields.io/badge/KOSIS-OpenAPI-green)](https://kosis.kr/openapi/)
@@ -131,7 +132,7 @@ AI: 2025년 하반기 광진구의 고용률은 61.6%입니다.
 
 ## 무엇을 물어볼 수 있나
 
-### 통계 키워드 — 92개 + 자연어 별칭 100개 이상
+### 통계 키워드 — 92개 + 자연어 별칭 88개
 
 | 분야 | 예시 키워드 |
 |------|------------|
@@ -285,12 +286,29 @@ AI 앱 설정에 발급받은 키를 넣습니다.
 
 ## 원격 엔드포인트
 
+공식 주소는 통합 호스트 경로 하나입니다.
+
 - 엔드포인트: `https://mcp.gomdori.app/stats` (14개 도구 전체 동작)
-- 헬스체크: `https://mcp.gomdori.app/stats/health`
+- 헬스체크: `https://mcp.gomdori.app/stats/health` → 배포 중인 버전과 도구 수(`{"status":"ok","name":…,"version":…,"tools":14}`)를 그대로 반환합니다
+- 구 개별 주소 `korean-stats-mcp.fly.dev` 는 통합 호스트로 옮기면서 중단됐습니다. 예전 설정에 남아 있다면 위 주소로 바꿔주세요.
 
 ---
 
 ## 변경 이력
+
+<details>
+<summary>v1.8 — 프로덕션 정확성 하드닝 + quick_rank·explain_statistic + 통합 호스트 이전</summary>
+
+- **잘못된 수치가 정답처럼 나가던 경로 차단** — 인식 못 한 지역명에 전국값을 조용히 반환하던 동작 제거(에러 + 지원 지역 안내로 교체), `청년실업률`·`연봉`처럼 **정의가 다른 지표로의 무단 별칭 치환 제거**(안내 문구로 전환), `다문화인구`·`유소년인구` 같은 복합어가 `인구`에 부분매칭되던 버그 차단
+- **노령화지수 라우팅 교체** — 장래추계 전용 표(`DT_1YL12501E`, 2033~2052년)에서 인구총조사 실측(`DT_1IN2030`)으로. 고령인구비율은 별도 키워드로 분리(지수 ≠ 비율)
+- 인구동향(출생·사망·혼인·이혼) 최근 시점에 **잠정치 안내** 자동 부착, 출처 표기에 통계표 ID + 최종갱신일(`LST_CHN_DE`) 포함
+- **신규 도구 2종** — `quick_rank`(동급 지자체 전수 대비 순위·백분위·평균 격차·순위 변동), `explain_statistic`(통계 정의·작성목적·조사주기 + 보고서 인용 각주). **도구 12개 → 14개**
+- 견고성 — 동일 키 in-flight 요청 병합(캐시 stampede 방지), 체인 도구 동시성 캡 8(17×8=136 동시 KOSIS 호출 방지), vitest 단위 테스트 도입
+- v1.8.1 — 통계설명을 정식 엔드포인트(`statisticsExplData.do`)로 교체 + 자치구 코드 lookup 검증 강화
+- v1.8.2 ~ v1.8.5 — MCP 도구 annotations(read-only·비파괴·멱등·openWorld) 부여, 도구명을 영문 그대로 노출(비-ASCII title이 붙으면 claude.ai 웹이 도구 목록을 인식하지 못함), 과대했던 도구 description 축소
+- **배포를 통합 호스트로 이전** — 공식 주소 `mcp.gomdori.app/stats` (구 `korean-stats-mcp.fly.dev` 중단)
+
+</details>
 
 <details>
 <summary>v1.7 — 자치구 데이터 소스 우선순위 재정립 + HTTP 서버 안정화</summary>

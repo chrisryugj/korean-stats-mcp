@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-REMOTE_URL="https://korean-stats-mcp.fly.dev/mcp"
+REMOTE_URL="https://mcp.gomdori.app/stats"
 SERVER_NAME="korean-stats"
 CLIENT="all"  # claude|cursor|windsurf|all
 

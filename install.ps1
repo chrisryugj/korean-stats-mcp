@@ -12,7 +12,7 @@
 param(
   [ValidateSet("claude", "cursor", "windsurf", "all")]
   [string]$Client = "all",
-  [string]$Url = "https://korean-stats-mcp.fly.dev/mcp"
+  [string]$Url = "https://mcp.gomdori.app/stats"
 )
 
 $ServerName = "korean-stats"
@@ -94,7 +94,7 @@ function Install-Windsurf {
 # 헬스 체크
 Write-Info "원격 서버 헬스 체크..."
 try {
-  $healthUrl = $Url -replace "/mcp$", "/health"
+  $healthUrl = if ($Url -match "/mcp$") { $Url -replace "/mcp$", "/health" } else { "$Url/health" }
   $resp = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -TimeoutSec 10
   if ($resp.StatusCode -eq 200) {
     Write-Ok "원격 서버 응답 정상"
