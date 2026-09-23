@@ -203,7 +203,7 @@ async function fetchDownloadInfo(
   tblId: string,
   fileSn: number,
   cookie: string
-): Promise<{ dwldFilePath: string; dwldFileNm: string; dwldFileSize?: number }> {
+): Promise<{ dwldFilePath: string; dwldFileNm: string; dwldFileSize?: number; srvcNm?: string }> {
   const url = `${KOSIS_BASE}/fileItmDownload.do`;
   const body = new URLSearchParams({
     vw_cd: 'NULL',
@@ -231,16 +231,18 @@ async function fetchDownloadInfo(
     dwldFilePath?: string;
     dwldFileNm?: string;
     dwldFileSize?: number;
+    srvcNm?: string;
   };
   // 응답 형식: { resultMap: { dwldFilePath, dwldFileNm, dwldFileSize }, baseinfo, success }
   // 일부 응답은 최상위에 직접 둘 수 있으므로 양쪽 모두 확인
   const path = json.resultMap?.dwldFilePath ?? json.dwldFilePath;
   const name = json.resultMap?.dwldFileNm ?? json.dwldFileNm;
   const size = json.resultMap?.dwldFileSize ?? json.dwldFileSize;
+  const srvcNm = json.resultMap?.srvcNm ?? json.srvcNm;
   if (!path || !name) {
     throw new Error(`fileItmDownload.do 응답 누락: ${JSON.stringify(json).slice(0, 300)}`);
   }
-  return { dwldFilePath: path, dwldFileNm: name, dwldFileSize: size };
+  return { dwldFilePath: path, dwldFileNm: name, dwldFileSize: size, srvcNm };
 }
 
 /** 3단계: dwldServerFile.do POST → 실제 xlsx 바이너리 */
@@ -248,7 +250,7 @@ async function downloadFile(
   orgId: string,
   tblId: string,
   fileSn: number,
-  info: { dwldFilePath: string; dwldFileNm: string },
+  info: { dwldFilePath: string; dwldFileNm: string; srvcNm?: string },
   cookie: string
 ): Promise<ArrayBuffer> {
   const url = `${KOSIS_BASE}/dwldServerFile.do`;
@@ -260,6 +262,9 @@ async function downloadFile(
     fileSvc: '',
     file_path: info.dwldFilePath,
     file_name: info.dwldFileNm,
+    // KOSIS 가 2026-08-05 "웹취약수정"으로 dwldServerFile.do 에 srvcNm(2단계 응답값)을 요구한다.
+    // 빠지면 xlsx 대신 eGovFrame 오류 페이지(2,392B)를 준다(2026-09-23 실측: 넣으면 140,110B xlsx).
+    srvcNm: info.srvcNm ?? '',
   });
   const res = await fetchWithRetry(url, {
     method: 'POST',
