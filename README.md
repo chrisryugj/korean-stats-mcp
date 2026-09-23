@@ -306,6 +306,7 @@ AI 앱 설정에 발급받은 키를 넣습니다.
 - 견고성 — 동일 키 in-flight 요청 병합(캐시 stampede 방지), 체인 도구 동시성 캡 8(17×8=136 동시 KOSIS 호출 방지), vitest 단위 테스트 도입
 - v1.8.1 — 통계설명을 정식 엔드포인트(`statisticsExplData.do`)로 교체 + 자치구 코드 lookup 검증 강화
 - v1.8.2 ~ v1.8.5 — MCP 도구 annotations(read-only·비파괴·멱등·openWorld) 부여, 도구명을 영문 그대로 노출(비-ASCII title이 붙으면 claude.ai 웹이 도구 목록을 인식하지 못함), 과대했던 도구 description 축소
+- v1.8.6: 응답 캐시를 크기 상한 LRU(기본 32MB, `CACHE_MAX_MB`)로 교체. 종전 캐시는 키 1,000개가 차면 저장 단계에서 예외를 던져 KOSIS 응답을 받아 놓고도 요청이 실패했고, 바이트 상한이 없어 통합 호스트에서 프로세스 하나가 RSS 434MB를 차지했다
 - **배포를 통합 호스트로 이전** — 공식 주소 `mcp.gomdori.app/stats` (구 `korean-stats-mcp.fly.dev` 중단)
 
 </details>

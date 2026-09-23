@@ -19,6 +19,8 @@ export const config = {
   cache: {
     ttlHours: parseInt(process.env.CACHE_TTL_HOURS || '6', 10),
     maxKeys: 1000,
+    // 캐시 총량 상한 (JSON 직렬화 길이 기준). 파싱된 행 배열의 힙 점유는 약 2배라 32MB ≈ 힙 64MB
+    maxSize: (parseInt(process.env.CACHE_MAX_MB || '32', 10) || 32) * 1024 * 1024,
   },
 
   // 로그 레벨

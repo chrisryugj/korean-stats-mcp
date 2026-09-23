@@ -1,7 +1,7 @@
 /**
  * 순수 유틸 단위 테스트 — parseKosisNumber·mapWithConcurrency·CacheManager·extractYearCount
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { parseKosisNumber } from '../../src/utils/dataFormatter.js';
 import { mapWithConcurrency } from '../../src/utils/concurrency.js';
 import { CacheManager } from '../../src/cache/index.js';
@@ -75,6 +75,70 @@ describe('CacheManager', () => {
     await cache.getOrFetch('t', { k: 2 }, fetcher);
     await cache.getOrFetch('t', { k: 2 }, fetcher);
     expect(calls).toBe(1);
+  });
+
+  // node-cache 시절엔 maxKeys 가 차면 set() 이 ECACHEFULL 을 던져, 받아 온 응답까지 실패로 끝났다
+  it('키 상한이 차도 던지지 않고 가장 오래 안 쓴 항목을 내보낸다', async () => {
+    const cache = new CacheManager(3, 1_000_000);
+    const calls: number[] = [];
+    const get = (k: number) => cache.getOrFetch('t', { k }, async () => { calls.push(k); return [k]; });
+    for (const k of [1, 2, 3]) await get(k);
+    await get(1); // 1 을 최근으로 승격 → 다음 축출 대상은 2
+    await expect(get(4)).resolves.toEqual([4]);
+    expect(cache.getStats().keys).toBe(3);
+    await get(1);
+    await get(2); // 축출됐으니 다시 가져온다
+    expect(calls).toEqual([1, 2, 3, 4, 2]);
+  });
+
+  it('총량 상한을 넘기지 않는다', async () => {
+    const cache = new CacheManager(1000, 1000);
+    const row = 'x'.repeat(90); // 직렬화 길이 ≈ 94
+    for (let k = 0; k < 30; k++) await cache.getOrFetch('t', { k }, async () => [row]);
+    expect(cache.getStats().size).toBeLessThanOrEqual(1000);
+    expect(cache.getStats().keys).toBe(10);
+  });
+
+  it('예산의 1/8 을 넘는 단건은 캐시하지 않는다', async () => {
+    const cache = new CacheManager(1000, 800);
+    let calls = 0;
+    const fetcher = async () => { calls++; return ['y'.repeat(200)]; };
+    await cache.getOrFetch('t', { k: 1 }, fetcher);
+    await cache.getOrFetch('t', { k: 1 }, fetcher);
+    expect(calls).toBe(2);
+    expect(cache.getStats().size).toBe(0);
+  });
+
+  it('TTL 0 은 만료 없음으로 둔다 (node-cache stdTTL 0 과 같은 뜻)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const cache = new CacheManager();
+      let calls = 0;
+      const fetcher = async () => { calls++; return [1]; };
+      await cache.getOrFetch('t', { k: 1 }, fetcher, 0);
+      vi.setSystemTime(Date.now() + 30 * 24 * 3600 * 1000);
+      await cache.getOrFetch('t', { k: 1 }, fetcher, 0);
+      expect(calls).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('만료된 항목은 다시 가져온다', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const cache = new CacheManager();
+      let calls = 0;
+      const fetcher = async () => { calls++; return [1]; };
+      await cache.getOrFetch('t', { k: 1 }, fetcher, 60);
+      vi.setSystemTime(Date.now() + 59_000);
+      await cache.getOrFetch('t', { k: 1 }, fetcher, 60);
+      vi.setSystemTime(Date.now() + 2_000);
+      await cache.getOrFetch('t', { k: 1 }, fetcher, 60);
+      expect(calls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
