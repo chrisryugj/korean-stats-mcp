@@ -10,6 +10,7 @@
  */
 import { z } from 'zod';
 import { summarizeTableMeta } from '../utils/metaLookup.js';
+import { rethrowIfUpstream } from '../utils/errorHandler.js';
 
 export const getTableInfoSchema = {
   name: 'get_table_info',
@@ -77,6 +78,7 @@ export async function getTableInfo(input: GetTableInfoInput) {
       hint: lines.join('\n'),
     };
   } catch (error) {
+    rethrowIfUpstream(error);
     const msg = error instanceof Error ? error.message : String(error);
     return {
       success: false,

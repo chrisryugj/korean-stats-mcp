@@ -56,6 +56,7 @@ import {
 
 // 설정 가져오기
 import { config, validateConfig } from './config/index.js';
+import { UpstreamError } from './utils/errorHandler.js';
 
 /**
  * 마켓플레이스(playmcp 등) 광고용 메타데이터.
@@ -67,7 +68,10 @@ const READONLY_ANN = { readOnlyHint: true, destructiveHint: false, idempotentHin
 
 type ToolSchema = { name: string; description: string; inputSchema: { shape: z.ZodRawShape } };
 
-/** server.tool 등록 래퍼 — 서비스명·annotations 일괄 주입, 핸들러 결과를 JSON 텍스트로 래핑 */
+/**
+ * server.tool 등록 래퍼 — 서비스명·annotations 일괄 주입, 핸들러 결과를 JSON 텍스트로 래핑.
+ * 업스트림 장애(UpstreamError)는 정상 결과로 내보내지 않고 isError=true + 마스킹된 원인(코드·호스트)으로 응답한다.
+ */
 function registerTool(
   server: McpServer,
   schema: ToolSchema,
@@ -78,9 +82,26 @@ function registerTool(
     `${SERVICE_NAME} — ${schema.description}`,
     schema.inputSchema.shape,
     { ...READONLY_ANN },
-    async (args: any) => ({
-      content: [{ type: 'text' as const, text: JSON.stringify(await handler(args), null, 2) }],
-    })
+    async (args: any) => {
+      try {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(await handler(args), null, 2) }],
+        };
+      } catch (error) {
+        // 그 밖의 예외는 SDK 가 isError 결과로 감싼다
+        if (!(error instanceof UpstreamError)) throw error;
+        console.error(`[upstream] ${schema.name}: ${error.host} ${error.code}`);
+        const body = {
+          success: false,
+          error: `${error.message}. 서버가 통계를 받아오지 못했습니다 — 조회 조건이 아니라 외부 API 쪽(장애·인증키·호출 한도) 문제입니다.`,
+          upstream: { code: error.code, host: error.host },
+        };
+        return {
+          isError: true,
+          content: [{ type: 'text' as const, text: JSON.stringify(body, null, 2) }],
+        };
+      }
+    }
   );
 }
 

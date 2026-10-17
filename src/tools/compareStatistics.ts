@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { getKosisClient } from '../api/client.js';
 import { getCacheManager } from '../cache/index.js';
 import { calculateChangeRate, parseKosisNumber } from '../utils/dataFormatter.js';
+import { rethrowIfUpstream } from '../utils/errorHandler.js';
 
 export const compareStatisticsSchema = {
   name: 'compare_statistics',
@@ -215,6 +216,7 @@ export async function compareStatistics(
       insights,
     };
   } catch (error) {
+    rethrowIfUpstream(error);
     console.error('Compare error:', error);
     const errorMessage = error instanceof Error ? error.message : String(error);
 

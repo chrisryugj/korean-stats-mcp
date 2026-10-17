@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { getKosisClient } from '../api/client.js';
 import { getCacheManager } from '../cache/index.js';
 import { getQuickStatsParam } from '../data/quickStatsParams.js';
+import { rethrowIfUpstream } from '../utils/errorHandler.js';
 import { extractKeyword } from './quickStats.js';
 
 export const explainStatisticSchema = {
@@ -103,21 +104,26 @@ export async function explainStatistic(input: ExplainStatisticInput): Promise<{
       };
     }
 
-    // 2. 통계설명 + 표 메타 병렬 조회 (각각 실패 허용 — 부분 정보로도 각주 생성)
+    // 2. 통계설명 + 표 메타 병렬 조회 (각각 실패 허용 — 부분 정보로도 각주 생성).
+    //    단 연결 장애는 "통계설명 미등록"으로 둔갑시키지 않고 올린다.
+    const partial = (e: unknown): Record<string, string>[] => {
+      rethrowIfUpstream(e);
+      return [];
+    };
     const [explainRows, tblMeta, prdMeta] = await Promise.all([
       cache
         .getExplanation({ orgId, tableId }, () => client.getStatisticsExplain(orgId!, tableId!))
-        .catch(() => [] as Record<string, string>[]),
+        .catch(partial),
       cache
         .getTableMeta({ orgId, tableId, type: 'TBL' }, () =>
           client.getTableMeta(orgId!, tableId!, 'TBL')
         )
-        .catch(() => [] as Record<string, string>[]),
+        .catch(partial),
       cache
         .getTableMeta({ orgId, tableId, type: 'PRD' }, () =>
           client.getTableMeta(orgId!, tableId!, 'PRD')
         )
-        .catch(() => [] as Record<string, string>[]),
+        .catch(partial),
     ]);
 
     // statisticsExplData.do는 필드 1~2개씩 담긴 partial 객체 "배열"을 반환 —
@@ -186,6 +192,7 @@ export async function explainStatistic(input: ExplainStatisticInput): Promise<{
         : { note: '용어 정의가 필요하면 해당 조사의 대표 표 ID로 다시 시도하거나 search_statistics로 본조사 표를 찾으세요.' }),
     };
   } catch (error) {
+    rethrowIfUpstream(error);
     const msg = error instanceof Error ? error.message : String(error);
     return {
       success: false,

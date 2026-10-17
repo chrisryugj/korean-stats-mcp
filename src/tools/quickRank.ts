@@ -28,6 +28,7 @@ import {
   AMBIGUOUS_DISTRICTS,
 } from '../utils/regions.js';
 import { parseKosisNumber } from '../utils/dataFormatter.js';
+import { rethrowIfUpstream } from '../utils/errorHandler.js';
 import { extractKeyword, extractDistrictName, extractProvinceName } from './quickStats.js';
 import type { StatisticsDataItem } from '../api/types.js';
 
@@ -468,6 +469,7 @@ export async function quickRank(input: QuickRankInput): Promise<QuickRankResult>
       },
     };
   } catch (error) {
+    rethrowIfUpstream(error);
     const msg = error instanceof Error ? error.message : String(error);
     return {
       success: false,

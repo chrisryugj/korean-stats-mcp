@@ -3,6 +3,7 @@
  */
 
 import { config } from '../config/index.js';
+import { UpstreamError, toUpstreamError } from '../utils/errorHandler.js';
 import type {
   StatisticsListItem,
   StatisticsDataItem,
@@ -24,6 +25,14 @@ class KosisApiError extends Error {
 }
 
 /**
+ * 요청을 고쳐도 안 되는 KOSIS 오류 코드 — 업스트림 장애(UpstreamError)로 올린다.
+ * KOSIS 공유서비스 개발가이드 1.4.2 오류메시지 유형: 10 인증키 누락, 11 인증키 기간만료,
+ * 40 호출가능건수 제한(분당 200건), 41 호출가능ROW수 제한, 42 사용자별 이용 제한, 50 서버오류.
+ * 20·21 요청변수 오류, 30 조회결과 없음(0건), 31 조회결과 초과는 요청 문제라 종전처럼 KosisApiError.
+ */
+const UPSTREAM_KOSIS_ERRORS = new Set(['10', '11', '40', '41', '42', '50']);
+
+/**
  * KOSIS API 클라이언트
  */
 export class KosisClient {
@@ -42,6 +51,7 @@ export class KosisClient {
    * - KOSIS 응답 에러(err/errMsg 필드)는 영구 실패 → 즉시 throw, retry 안 함
    * - HTTP 4xx도 영구 실패 → 즉시 throw
    * - 네트워크 오류·타임아웃·5xx만 retry (800ms / 1600ms 백오프)
+   * - 연결·HTTP 실패와 KOSIS 서버측 오류 코드는 UpstreamError(원인 코드 + 호스트 이름)로 던진다
    */
   private async request<T>(
     endpoint: string,
@@ -60,6 +70,8 @@ export class KosisClient {
     const url = new URL(this.baseUrl + endpoint);
     url.search = new URLSearchParams(cleanParams).toString();
     const requestUrl = url.toString();
+    // 실패 원인에는 호스트 이름만 남긴다 — requestUrl 쿼리에 apiKey 가 있다
+    const host = url.hostname;
 
     const TIMEOUT_MS = 15000;
     const MAX_ATTEMPTS = 3;
@@ -76,16 +88,17 @@ export class KosisClient {
         if (!response.ok) {
           // 5xx는 일시적 — retry, 4xx는 영구 실패
           isRetryable = response.status >= 500;
-          throw new KosisApiError(
-            'HTTP_ERROR',
-            `HTTP ${response.status}: ${response.statusText}`
-          );
+          throw new UpstreamError(`HTTP_${response.status}`, host);
         }
 
         const data = (await response.json()) as Record<string, unknown>;
 
         // KOSIS 응답 에러 — 영구 실패
         if (data.err || data.errMsg) {
+          const err = String(data.err ?? '');
+          if (UPSTREAM_KOSIS_ERRORS.has(err)) {
+            throw new UpstreamError(`KOSIS_ERR_${err}`, host);
+          }
           throw new KosisApiError(
             (data.err as string) || 'API_ERROR',
             (data.errMsg as string) || '알 수 없는 API 오류'
@@ -105,24 +118,13 @@ export class KosisClient {
 
         return data as T[];
       } catch (error) {
-        // KOSIS 응답 에러는 즉시 throw (retry 무의미)
-        if (error instanceof KosisApiError && !isRetryable) {
+        // KOSIS 응답 에러·HTTP 4xx는 즉시 throw (retry 무의미)
+        if ((error instanceof KosisApiError || error instanceof UpstreamError) && !isRetryable) {
           throw error;
         }
-        // 네트워크/timeout/5xx — retry 가능
+        // 네트워크/timeout/5xx — retry 가능. 마지막 시도면 원인 코드(undici cause.code 등)만 남긴다
         if (attempt === MAX_ATTEMPTS - 1) {
-          if (error instanceof DOMException && error.name === 'AbortError') {
-            throw new KosisApiError(
-              'TIMEOUT',
-              `KOSIS API 응답 시간 초과 (${TIMEOUT_MS / 1000}초, ${MAX_ATTEMPTS}회 시도). 잠시 후 다시 시도해주세요.`
-            );
-          }
-          if (error instanceof KosisApiError) throw error;
-          throw new KosisApiError(
-            'NETWORK_ERROR',
-            '네트워크 오류가 발생했습니다.',
-            error as Error
-          );
+          throw toUpstreamError(error, host);
         }
         await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
       } finally {

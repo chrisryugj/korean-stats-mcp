@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { getKosisClient } from '../api/client.js';
 import { getCacheManager } from '../cache/index.js';
 import { analyzeTrend, formatPeriod, parseKosisNumber } from '../utils/dataFormatter.js';
+import { rethrowIfUpstream } from '../utils/errorHandler.js';
 
 export const analyzeTimeSeriesSchema = {
   name: 'analyze_time_series',
@@ -201,6 +202,7 @@ export async function analyzeTimeSeries(
       interpretation,
     };
   } catch (error) {
+    rethrowIfUpstream(error);
     console.error('Analysis error:', error);
     const errorMessage = error instanceof Error ? error.message : String(error);
 

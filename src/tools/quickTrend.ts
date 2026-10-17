@@ -21,6 +21,7 @@ import {
   AMBIGUOUS_DISTRICTS,
 } from '../utils/regions.js';
 import { analyzeTrend, formatPeriod, parseKosisNumber } from '../utils/dataFormatter.js';
+import { rethrowIfUpstream } from '../utils/errorHandler.js';
 import {
   extractKeyword,
   extractDistrictName,
@@ -418,6 +419,7 @@ export async function quickTrend(input: QuickTrendInput): Promise<QuickTrendResu
       ...(combinedNote ? { note: combinedNote } : {}),
     };
   } catch (error) {
+    rethrowIfUpstream(error);
     console.error('Quick trend error:', error);
     const errorMessage = error instanceof Error ? error.message : String(error);
     return {

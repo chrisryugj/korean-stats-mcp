@@ -33,6 +33,7 @@ import {
 } from '../data/districtFileMap.js';
 import { getDistrictKscdCandidatesFor } from '../utils/districtKosisCodes.js';
 import { parseKosisNumber } from '../utils/dataFormatter.js';
+import { rethrowIfUpstream } from '../utils/errorHandler.js';
 
 /**
  * 자치구로 오판하면 안 되는 키워드 집합
@@ -364,7 +365,9 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
                 });
               }
             );
-          } catch {
+          } catch (e) {
+            // 연결 장애는 "자치구 미수록"으로 둔갑시키지 않고 올린다
+            rethrowIfUpstream(e);
             continue; // 이 후보 코드 조회 실패 — 다음 후보
           }
           if (rows.length > 0) {
@@ -403,7 +406,8 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
           districtNote =
             `💡 ${districtName} ${route.description}: KOSIS 자치구 단위 데이터 미수록.`;
         }
-      } catch {
+      } catch (e) {
+        rethrowIfUpstream(e);
         // OpenAPI 라우팅 실패 — 2.6 통계연보·광역으로 degrade
       }
     }
@@ -488,6 +492,7 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
           `⚠️ "${districtName}" 자치구 통계연보(.xlsx) 조회 실패: ${reason}` +
           (requestedRegion ? ` → ${requestedRegion} 광역시도 데이터로 대체합니다.` : '');
       } catch (e) {
+        rethrowIfUpstream(e);
         const msg = e instanceof Error ? e.message : String(e);
         districtNote =
           `⚠️ "${districtName}" 자치구 통계연보 조회 예외: ${msg.slice(0, 150)}` +
@@ -682,6 +687,7 @@ export async function quickStats(input: QuickStatsInput): Promise<QuickStatsResu
       ...(combinedNote ? { note: combinedNote } : {}),
     };
   } catch (error) {
+    rethrowIfUpstream(error);
     console.error('Quick stats error:', error);
     const errorMessage = error instanceof Error ? error.message : String(error);
 

@@ -8,6 +8,7 @@ import { getKosisClient } from '../api/client.js';
 import { getCacheManager } from '../cache/index.js';
 import { simplifyStatisticsData, recommendVisualization } from '../utils/dataFormatter.js';
 import { resolveDimensions, summarizeTableMeta, type ResolveResult } from '../utils/metaLookup.js';
+import { rethrowIfUpstream } from '../utils/errorHandler.js';
 import type { SimplifiedDataItem } from '../api/types.js';
 
 export const getStatisticsDataSchema = {
@@ -296,6 +297,7 @@ ${candidates ?? '(메타 조회 실패)'}
       },
     };
   } catch (error) {
+    rethrowIfUpstream(error);
     console.error('Data error:', error);
     const errorMessage = error instanceof Error ? error.message : String(error);
     return {

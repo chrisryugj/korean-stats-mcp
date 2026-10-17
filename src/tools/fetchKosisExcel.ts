@@ -26,6 +26,7 @@ async function loadKordoc(): Promise<((ab: ArrayBuffer) => Promise<any>) | null>
 }
 import { resolveDistrictFileTable } from '../utils/regions.js';
 import { resolveFileSnByKeyword } from '../data/districtFileMap.js';
+import { UpstreamError, toUpstreamError, rethrowIfUpstream } from '../utils/errorHandler.js';
 
 const KOSIS_HOST = 'https://stat.kosis.kr';
 const KOSIS_BASE = `${KOSIS_HOST}/nsibsHtmlSvc/fileView/FileStbl`;
@@ -52,7 +53,21 @@ async function fetchWithRetry(url: string, init: RequestInit, attempts = 3): Pro
       if (i < attempts - 1) await new Promise((r) => setTimeout(r, 800 * (i + 1)));
     }
   }
-  throw lastErr;
+  // 원인 코드와 호스트 이름만 남긴다 (URL 쿼리·원본 메시지 제외)
+  throw toUpstreamError(lastErr, new URL(url).hostname);
+}
+
+/**
+ * 응답 본문 읽기 — 받는 도중 연결이 끊기거나(undici 'terminated') 15초 시간 초과가 나도 업스트림 장애로 올린다.
+ * fetchWithRetry 는 응답 헤더까지만 감싼다. 본문 형식 오류(JSON 아님)는 종전대로 일반 실패.
+ */
+async function readBody<T>(read: () => Promise<T>, url: string): Promise<T> {
+  try {
+    return await read();
+  } catch (e) {
+    if (e instanceof SyntaxError) throw e;
+    throw toUpstreamError(e, new URL(url).hostname);
+  }
 }
 
 export const fetchKosisExcelSchema = {
@@ -138,8 +153,10 @@ async function fetchTableView(orgId: string, tblId: string): Promise<{ cookie: s
       'Accept': 'text/html',
     },
   });
-  if (!res.ok) throw new Error(`fileStblView.do HTTP ${res.status}`);
-  return { cookie: extractCookies(res), html: await res.text() };
+  // 404 = 그 연도 파일 통계표 미제공 — 호출 측이 다음 후보로 넘어간다 (업스트림 장애 아님)
+  if (res.status === 404) throw new Error('fileStblView.do HTTP 404');
+  if (!res.ok) throw new UpstreamError(`HTTP_${res.status}`, new URL(url).hostname);
+  return { cookie: extractCookies(res), html: await readBody(() => res.text(), url) };
 }
 
 /**
@@ -225,8 +242,8 @@ async function fetchDownloadInfo(
     },
     body: body.toString(),
   });
-  if (!res.ok) throw new Error(`fileItmDownload.do HTTP ${res.status}`);
-  const json = (await res.json()) as {
+  if (!res.ok) throw new UpstreamError(`HTTP_${res.status}`, new URL(url).hostname);
+  const json = (await readBody(() => res.json(), url)) as {
     resultMap?: { dwldFilePath?: string; dwldFileNm?: string; dwldFileSize?: number; srvcNm?: string };
     dwldFilePath?: string;
     dwldFileNm?: string;
@@ -276,8 +293,8 @@ async function downloadFile(
     },
     body: body.toString(),
   });
-  if (!res.ok) throw new Error(`dwldServerFile.do HTTP ${res.status}`);
-  return res.arrayBuffer();
+  if (!res.ok) throw new UpstreamError(`HTTP_${res.status}`, new URL(url).hostname);
+  return readBody(() => res.arrayBuffer(), url);
 }
 
 export async function fetchKosisExcel(input: FetchKosisExcelInput): Promise<ExcelFetchResult> {
@@ -442,6 +459,7 @@ export async function fetchKosisExcel(input: FetchKosisExcelInput): Promise<Exce
       warnings: result.warnings?.map((w: { message: string }) => w.message),
     };
   } catch (e) {
+    rethrowIfUpstream(e);
     return {
       success: false,
       orgId: input.orgId ?? '',

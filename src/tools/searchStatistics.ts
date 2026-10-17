@@ -8,6 +8,7 @@ import { getKosisClient } from '../api/client.js';
 import { getCacheManager } from '../cache/index.js';
 import { parseQuery, generateSearchTerms, REGION_NAMES } from '../utils/queryParser.js';
 import { detectRegion, isProvinceBaseStat } from '../utils/regions.js';
+import { rethrowIfUpstream } from '../utils/errorHandler.js';
 import type { SimplifiedStatisticsItem } from '../api/types.js';
 
 /**
@@ -309,6 +310,7 @@ export async function searchStatistics(
       suggestions,
     };
   } catch (error) {
+    rethrowIfUpstream(error);
     console.error('Search error:', error);
     return {
       success: false,

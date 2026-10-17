@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { getKosisClient } from '../api/client.js';
 import { getCacheManager } from '../cache/index.js';
 import { config } from '../config/index.js';
+import { rethrowIfUpstream } from '../utils/errorHandler.js';
 import type { ListItem, SimplifiedStatisticsItem } from '../api/types.js';
 
 // ═══════════════════════════════════════════════════════════
@@ -299,6 +300,7 @@ export async function getStatisticsList(
         searchSuggestions: topicInfo.searchTerms,
       };
     } catch (error) {
+      rethrowIfUpstream(error);
       console.error('Recommendation error:', error);
       return {
         success: false,
@@ -356,6 +358,7 @@ export async function getStatisticsList(
       },
     };
   } catch (error) {
+    rethrowIfUpstream(error);
     console.error('List error:', error);
     return {
       success: false,

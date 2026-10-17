@@ -12,6 +12,7 @@ import { quickStats } from './quickStats.js';
 import { quickTrend } from './quickTrend.js';
 import { parseKosisNumber } from '../utils/dataFormatter.js';
 import { mapWithConcurrency, CHAIN_CONCURRENCY } from '../utils/concurrency.js';
+import { upstreamCause, throwIfAllFailedUpstream, type UpstreamCause } from '../utils/errorHandler.js';
 
 // ═══════════════════════════════════════════════════════════
 // chain_region_brief — 지역 한장 종합 브리핑
@@ -75,6 +76,7 @@ export async function chainRegionBrief(input: ChainRegionBriefInput) {
       return {
         success: false,
         answer: `조회 실패: ${e instanceof Error ? e.message : String(e)}`,
+        upstream: upstreamCause(e),
       } as any;
     }
   };
@@ -94,10 +96,13 @@ export async function chainRegionBrief(input: ChainRegionBriefInput) {
         source: r.source?.tableName ?? null,
         note: r.note ?? null,
         message: r.success ? r.answer?.split('\n')[0] : r.answer,
+        upstream: r.upstream,
       };
     },
     CHAIN_CONCURRENCY
   );
+  // 전 지표가 실패했고 업스트림 장애가 섞였으면 빈 브리핑 대신 도구 실패로 (부분 실패는 허용)
+  throwIfAllFailedUpstream(regional);
 
   let national: any[] | undefined;
   if (includeNational) {
@@ -112,6 +117,7 @@ export async function chainRegionBrief(input: ChainRegionBriefInput) {
           unit: r.unit ?? null,
           period: r.period ?? null,
           success: r.success,
+          upstream: r.upstream,
         };
       },
       CHAIN_CONCURRENCY
@@ -211,6 +217,7 @@ export async function chainCompareRegions(input: ChainCompareRegionsInput) {
     success: boolean;
     note?: string | null;
     sourceTableId: string | null;
+    upstream?: UpstreamCause;
   };
 
   // (지역 × 지표) 전체 쌍을 평탄화 후 동시성 제한 실행 — 최대 17×8=136 호출이
@@ -247,11 +254,13 @@ export async function chainCompareRegions(input: ChainCompareRegionsInput) {
           success: false,
           note: e instanceof Error ? e.message : String(e),
           sourceTableId: null,
+          upstream: upstreamCause(e),
         };
       }
     },
     CHAIN_CONCURRENCY
   );
+  throwIfAllFailedUpstream(cellResults);
   const matrix: { region: string; cells: Cell[] }[] = regions.map((region) => ({
     region,
     cells: cellResults.filter((c) => c.region === region),
@@ -441,10 +450,12 @@ export async function chainPolicyIndicator(input: ChainPolicyIndicatorInput) {
           keyword: kw,
           success: false,
           error: e instanceof Error ? e.message : String(e),
+          upstream: upstreamCause(e),
         };
       }
     })
   );
+  throwIfAllFailedUpstream(results);
 
   const successItems = results.filter((r: any) => r.success);
 
