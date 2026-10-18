@@ -59,15 +59,31 @@ async function fetchWithRetry(url: string, init: RequestInit, attempts = 3): Pro
 
 /**
  * 응답 본문 읽기 — 받는 도중 연결이 끊기거나(undici 'terminated') 15초 시간 초과가 나도 업스트림 장애로 올린다.
- * fetchWithRetry 는 응답 헤더까지만 감싼다. 본문 형식 오류(JSON 아님)는 종전대로 일반 실패.
+ * fetchWithRetry 는 응답 헤더까지만 감싼다.
  */
 async function readBody<T>(read: () => Promise<T>, url: string): Promise<T> {
   try {
     return await read();
   } catch (e) {
-    if (e instanceof SyntaxError) throw e;
     throw toUpstreamError(e, new URL(url).hostname);
   }
+}
+
+/**
+ * 기대한 형식이 아닌 응답(JSON 아님·다운로드 경로 누락·xlsx 아님) → 업스트림 장애 INVALID_RESPONSE.
+ * 진단 스니펫은 서버 stderr 로그에만 남긴다 — URL·키·세션 값은 가리고, 응답 본문에는 싣지 않는다.
+ */
+function invalidResponse(url: string, what: string, snippet: string): UpstreamError {
+  const host = new URL(url).hostname;
+  const masked = snippet
+    .replace(/https?:\/\/[^\s"'<>]+/gi, '<url>')
+    .replace(/([\w.-]*(?:key|token|secret|pass|session|auth)[\w.-]*)=[^&\s"'<>;]*/gi, '$1=***')
+    .replace(/\b(Bearer|Basic)\s+[\w.~+/=-]+/gi, '$1 ***')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200);
+  console.error(`[upstream] ${host} INVALID_RESPONSE ${what}: ${masked}`);
+  return new UpstreamError('INVALID_RESPONSE', host);
 }
 
 export const fetchKosisExcelSchema = {
@@ -243,13 +259,20 @@ async function fetchDownloadInfo(
     body: body.toString(),
   });
   if (!res.ok) throw new UpstreamError(`HTTP_${res.status}`, new URL(url).hostname);
-  const json = (await readBody(() => res.json(), url)) as {
+  // 본문을 텍스트로 먼저 받는다 — JSON 이 아니면 진단 스니펫을 남길 수 있게
+  const text = await readBody(() => res.text(), url);
+  let json: {
     resultMap?: { dwldFilePath?: string; dwldFileNm?: string; dwldFileSize?: number; srvcNm?: string };
     dwldFilePath?: string;
     dwldFileNm?: string;
     dwldFileSize?: number;
     srvcNm?: string;
   };
+  try {
+    json = JSON.parse(text) ?? {};
+  } catch {
+    throw invalidResponse(url, 'fileItmDownload.do JSON 아님', text);
+  }
   // 응답 형식: { resultMap: { dwldFilePath, dwldFileNm, dwldFileSize }, baseinfo, success }
   // 일부 응답은 최상위에 직접 둘 수 있으므로 양쪽 모두 확인
   const path = json.resultMap?.dwldFilePath ?? json.dwldFilePath;
@@ -257,7 +280,7 @@ async function fetchDownloadInfo(
   const size = json.resultMap?.dwldFileSize ?? json.dwldFileSize;
   const srvcNm = json.resultMap?.srvcNm ?? json.srvcNm;
   if (!path || !name) {
-    throw new Error(`fileItmDownload.do 응답 누락: ${JSON.stringify(json).slice(0, 300)}`);
+    throw invalidResponse(url, 'fileItmDownload.do 다운로드 경로 누락', JSON.stringify(json));
   }
   return { dwldFilePath: path, dwldFileNm: name, dwldFileSize: size, srvcNm };
 }
@@ -294,7 +317,14 @@ async function downloadFile(
     body: body.toString(),
   });
   if (!res.ok) throw new UpstreamError(`HTTP_${res.status}`, new URL(url).hostname);
-  return readBody(() => res.arrayBuffer(), url);
+  const ab = await readBody(() => res.arrayBuffer(), url);
+  // 매직바이트 확인 (xlsx = PK\x03\x04) — 200 인데 xlsx 가 아니면 오류 페이지(eGovFrame 등)
+  const head = new Uint8Array(ab.slice(0, 4));
+  if (!(head[0] === 0x50 && head[1] === 0x4b)) {
+    const snippet = new TextDecoder('utf-8', { fatal: false }).decode(ab.slice(0, 500));
+    throw invalidResponse(url, `dwldServerFile.do xlsx 아님 (${ab.byteLength}B)`, snippet);
+  }
+  return ab;
 }
 
 export async function fetchKosisExcel(input: FetchKosisExcelInput): Promise<ExcelFetchResult> {
@@ -401,24 +431,8 @@ export async function fetchKosisExcel(input: FetchKosisExcelInput): Promise<Exce
     // 2단계 — 다운로드 정보
     const info = await fetchDownloadInfo(orgId, tblId, effectiveFileSn, cookie);
 
-    // 3단계 — 실제 파일
+    // 3단계 — 실제 파일 (xlsx 가 아니면 downloadFile 이 업스트림 장애로 던진다)
     const ab = await downloadFile(orgId, tblId, effectiveFileSn, info, cookie);
-
-    // 매직바이트 확인 (xlsx = PK\x03\x04)
-    const head = new Uint8Array(ab.slice(0, 4));
-    if (!(head[0] === 0x50 && head[1] === 0x4b)) {
-      const decoder = new TextDecoder('utf-8', { fatal: false });
-      const snippet = decoder.decode(ab.slice(0, 500));
-      return {
-        success: false,
-        orgId,
-        tblId,
-        fileSn: effectiveFileSn,
-        fileName: fileMeta?.file_nm ?? info.dwldFileNm,
-        byteSize: ab.byteLength,
-        error: `XLSX가 아닌 응답 (${ab.byteLength}B): ${snippet.slice(0, 300)}`,
-      };
-    }
 
     // kordoc 파싱 (XLSX → 마크다운). 원격 배포에선 미설치라 안내 후 종료.
     const parse = await loadKordoc();

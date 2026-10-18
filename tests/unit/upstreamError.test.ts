@@ -47,6 +47,21 @@ const brokenBody = (reason: unknown) =>
 /** undici: 본문 수신 중 소켓이 닫히면 TypeError('terminated') + cause SocketError UND_ERR_SOCKET */
 const socketClosed = () => new TypeError('terminated', { cause: withCode(new Error('other side closed'), 'UND_ERR_SOCKET') });
 
+// stat.kosis.kr 통계연보 단계별 정상 응답 — 파일 목록엔 '임금'이 매칭되는 Ⅳ.노동·사업체(file_sn 3)
+const filePage = () =>
+  new Response(
+    `<ul><li><span>Ⅳ.노동·사업체</span><a href="javascript:file_prev_obj.fn_fileitm_download('3');">받기</a></li></ul>`,
+    { status: 200, headers: { 'set-cookie': 'JSESSIONID=abc; Path=/' } }
+  );
+const downloadInfo = () => Response.json({ resultMap: { dwldFilePath: '/p/', dwldFileNm: 'x.xlsx', srvcNm: 'x.xlsx' } });
+/** 200 인데 xlsx 가 아닌 오류 페이지 (2026-09-23 실측: eGovFrame). 로그 마스킹을 보려고 키·세션 값·URL 을 넣었다 */
+const egovErrorPage = () =>
+  new Response(
+    '<html><head><title>eGovFrame</title></head><body>요청을 처리할 수 없습니다 serviceKey=LEAK-KEY JSESSIONID=LEAK-SESSION ' +
+      '<a href="https://stat.kosis.kr/nsibsHtmlSvc/err.do?apiKey=LEAK-URL-KEY">돌아가기</a></body></html>',
+    { status: 200, headers: { 'content-type': 'text/html' } }
+  );
+
 let client: Client;
 let closeAll: () => Promise<void>;
 
@@ -249,6 +264,8 @@ describe('성공·0건·요청 문제는 종전처럼 isError 아님', () => {
     expect(r.body.error).toContain('미제공');
   });
 
+  // 2026-10-18 실키 실측: 통계설명 미등록 표(DT_1YL20631)는 HTTP 200 + {"err":"30","errMsg":"데이터가 존재하지 않습니다."}
+  // (content-type 은 JSON 도 text/html). 등록 표(DT_1B81A17)는 부분 객체 29행 배열.
   it('explain_statistic — 통계설명 KOSIS 오류 응답은 종전처럼 표 메타 기반 각주로 degrade', async () => {
     fetchMock.mockImplementation(async (input) => {
       if (new URL(String(input)).pathname.endsWith('/statisticsExplData.do')) {
@@ -335,26 +352,48 @@ describe('quick_stats 자치구 — 연결 장애를 "자치구 미수록" 안�
     await expectNoFalseDistrictAnswer('광진구 임금', 'UND_ERR_CONNECT_TIMEOUT', 'kosis.kr');
   });
 
-  it('통계연보 경로 — 파일 목록(stat.kosis.kr) 본문 수신 중 끊김', async () => {
-    fetchMock.mockImplementation(async (input) => {
+  /** '광진구 임금' 통계연보 경로 — 자치구 목록·광역값은 정상, stat.kosis.kr 단계 응답만 바꿔 끼운다 */
+  const xlsxPath =
+    (stage: { view?: () => Response; itm?: () => Response; file?: () => Response }) =>
+    async (input: string | URL | Request) => {
       const url = new URL(String(input));
       if (url.pathname.endsWith('/statisticsList.do')) {
         return url.searchParams.get('parentListId') === '201'
           ? Response.json([{ LIST_NM: '광진구', LIST_ID: '201_201A_505' }])
           : Response.json([{ LIST_NM: '서울특별시광진구기본통계', LIST_ID: '201_201A_505_50501' }]);
       }
-      if (url.pathname.endsWith('/fileStblView.do')) return brokenBody(socketClosed());
+      if (url.pathname.endsWith('/fileStblView.do')) return (stage.view ?? filePage)();
+      if (url.pathname.endsWith('/fileItmDownload.do')) return (stage.itm ?? downloadInfo)();
+      if (url.pathname.endsWith('/dwldServerFile.do')) return (stage.file ?? (() => new Response('unexpected')))();
       if (url.pathname.endsWith('/statisticsParameterData.do')) return Response.json(SEOUL_ROW);
       throw connectTimeout();
-    });
+    };
+
+  it('통계연보 경로 — 파일 목록(stat.kosis.kr) 본문 수신 중 끊김', async () => {
+    fetchMock.mockImplementation(xlsxPath({ view: () => brokenBody(socketClosed()) }));
     await expectNoFalseDistrictAnswer('광진구 임금', 'UND_ERR_SOCKET', 'stat.kosis.kr');
+  });
+
+  it.each<{ label: string; itm?: () => Response; file?: () => Response }>([
+    { label: '다운로드 정보가 JSON 아님', itm: () => new Response('<html>점검 중</html>', { status: 200 }) },
+    { label: '다운로드 정보에 경로 없음', itm: () => Response.json({ success: false, resultMap: {} }) },
+    { label: '파일이 xlsx 가 아닌 오류 페이지(eGovFrame)', file: egovErrorPage },
+  ])('통계연보 경로 — $label → INVALID_RESPONSE', async ({ itm, file }) => {
+    fetchMock.mockImplementation(xlsxPath({ itm, file }));
+    await expectNoFalseDistrictAnswer('광진구 임금', 'INVALID_RESPONSE', 'stat.kosis.kr');
   });
 });
 
-describe('fetch_kosis_excel — stat.kosis.kr 단계별 HTTP 오류·본문 수신 중 장애', () => {
-  const page = () => new Response('<html></html>', { status: 200, headers: { 'set-cookie': 'JSESSIONID=abc; Path=/' } });
-  const info = () => Response.json({ resultMap: { dwldFilePath: '/p/', dwldFileNm: 'x.xlsx', srvcNm: 'x.xlsx' } });
+describe('fetch_kosis_excel — stat.kosis.kr 단계별 HTTP 오류·본문 수신 중 장애·형식 오류', () => {
   const timedOut = () => new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+  const stages =
+    (stage: { view?: () => Response; itm?: () => Response; file?: () => Response }) =>
+    async (input: string | URL | Request) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith('/fileStblView.do')) return (stage.view ?? filePage)();
+      if (path.endsWith('/fileItmDownload.do')) return (stage.itm ?? downloadInfo)();
+      return (stage.file ?? (() => new Response('unexpected')))();
+    };
 
   it.each<{ label: string; view?: () => Response; itm?: () => Response; file?: () => Response; code: string }>([
     { label: '파일 목록 HTTP 503', view: () => new Response('', { status: 503 }), code: 'HTTP_503' },
@@ -363,14 +402,30 @@ describe('fetch_kosis_excel — stat.kosis.kr 단계별 HTTP 오류·본문 수�
     { label: '파일 목록 본문 수신 중 끊김', view: () => brokenBody(socketClosed()), code: 'UND_ERR_SOCKET' },
     { label: '다운로드 정보 본문 수신 중 끊김', itm: () => brokenBody(socketClosed()), code: 'UND_ERR_SOCKET' },
     { label: '파일 본문 수신 중 15초 시간 초과', file: () => brokenBody(timedOut()), code: 'TIMEOUT' },
+    {
+      label: '다운로드 정보가 JSON 아님(점검 페이지)',
+      itm: () => new Response('<html>점검 중</html>', { status: 200 }),
+      code: 'INVALID_RESPONSE',
+    },
+    { label: '다운로드 정보에 경로 없음', itm: () => Response.json({ success: false, resultMap: {} }), code: 'INVALID_RESPONSE' },
+    { label: '파일이 200 인데 xlsx 아님(eGovFrame 오류 페이지)', file: egovErrorPage, code: 'INVALID_RESPONSE' },
   ])('$label → $code', async ({ view, itm, file, code }) => {
-    fetchMock.mockImplementation(async (input) => {
-      const path = new URL(String(input)).pathname;
-      if (path.endsWith('/fileStblView.do')) return (view ?? page)();
-      if (path.endsWith('/fileItmDownload.do')) return (itm ?? info)();
-      return (file ?? (() => new Response('unexpected')))();
-    });
+    fetchMock.mockImplementation(stages({ view, itm, file }));
     const r = await call('fetch_kosis_excel', { orgId: '505', tblId: 'DT_505001_FILE2024', fileSn: 2 });
     expectMaskedUpstream(r, code, 'stat.kosis.kr');
+  });
+
+  it('형식 오류의 진단 스니펫은 서버 로그에만 — URL·키·세션 값은 가리고 응답 본문엔 없다', async () => {
+    fetchMock.mockImplementation(stages({ file: egovErrorPage }));
+    const r = await call('fetch_kosis_excel', { orgId: '505', tblId: 'DT_505001_FILE2024', fileSn: 3 });
+    expectMaskedUpstream(r, 'INVALID_RESPONSE', 'stat.kosis.kr');
+    expect(r.text).not.toMatch(/eGovFrame|LEAK|돌아가기/);
+    const logs = vi.mocked(console.error).mock.calls.map((args) => args.join(' '));
+    const diag = logs.find((line) => line.includes('INVALID_RESPONSE dwldServerFile.do'));
+    expect(diag).toContain('eGovFrame');
+    expect(diag).toContain('serviceKey=***');
+    expect(diag).toContain('JSESSIONID=***');
+    expect(diag).toContain('<url>');
+    expect(diag).not.toMatch(/LEAK|https?:\/\//);
   });
 });

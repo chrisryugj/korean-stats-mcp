@@ -25,7 +25,11 @@ describe('fetchKosisExcel 다운로드 절차', () => {
       return new Response('not-a-real-xlsx', { status: 200 });
     }));
 
-    await fetchKosisExcel({ orgId: '505', tblId: 'DT_505001_FILE2024', fileSn: 2 });
+    // 가짜 다운로드는 xlsx 가 아니라 업스트림 장애(INVALID_RESPONSE)로 끝난다 — 여기선 3단계 요청 본문만 본다
+    await expect(fetchKosisExcel({ orgId: '505', tblId: 'DT_505001_FILE2024', fileSn: 2 })).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+      host: 'stat.kosis.kr',
+    });
     expect(new URLSearchParams(bodies.download).get('srvcNm')).toBe('Ⅲ. 인구.xlsx');
   });
 });
